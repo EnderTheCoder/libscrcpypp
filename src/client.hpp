@@ -96,6 +96,8 @@ namespace scrcpy {
 
         auto text(const std::string &text) const -> void;
 
+        auto scroll(std::int32_t x, std::int32_t y,float h_scroll, float v_scroll) const -> void;
+
         auto expand_notification_panel() const -> void;
 
         auto expand_settings_panel() const -> void;
@@ -109,8 +111,6 @@ namespace scrcpy {
         auto reset_video() const -> void;
 
         auto start_app(const std::string &app_name) const -> void;
-
-        auto scroll(std::int32_t x, std::int32_t y,float h_scroll, float v_scroll) const -> void;
 
     private:
         auto send_single_byte_control_msg(control_msg_type msg_type) const -> void;
