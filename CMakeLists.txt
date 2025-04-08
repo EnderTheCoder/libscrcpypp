@@ -5,6 +5,7 @@ if (WIN32)
     add_compile_definitions(NOMINMAX)
 endif ()
 set(CMAKE_CXX_STANDARD 23)
+set(ENV{PKG_CONFIGFLAGS} "--static")
 
 find_package(Boost 1.80.0 COMPONENTS filesystem system REQUIRED)
 find_package(PkgConfig REQUIRED)
