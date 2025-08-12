@@ -15,6 +15,8 @@ build-linux-job:
     name: libscrcpy++-${CI_PIPELINE_ID}-linux-x64
     paths:
       - build-linux/Release/libscrcpy++.a
+      - build-linux/scrcpy++Config.cmake
+      - build-linux/scrcpy++ConfigVersion.cmake
     expire_in: 14 days
   tags:
     - docker
@@ -30,6 +32,8 @@ build-windows-job:
     name: libscrcpy++-${CI_PIPELINE_ID}-windows-x64
     paths:
       - build-windows/Release/scrcpy++.lib
+      - build-windows/scrcpy++Config.cmake
+      - build-windows/scrcpy++ConfigVersion.cmake
     expire_in: 14 days
   tags:
     - windows
