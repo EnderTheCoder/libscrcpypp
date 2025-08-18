@@ -115,4 +115,18 @@ namespace scrcpy {
         this->join_buf(action->serialize());
         return buf;
     }
+
+    auto inject_keycode_msg::buf_size() const -> std::size_t {
+        return 14;
+    }
+
+    auto inject_keycode_msg::serialize() -> std::vector<std::byte> {
+        auto buf = this->init_buf();
+        this->join_buf(msg_type->serialize());
+        this->join_buf(action->serialize());
+        this->join_buf(keycode->serialize());
+        this->join_buf(repeat->serialize());
+        this->join_buf(metastate->serialize());
+        return buf;
+    }
 }

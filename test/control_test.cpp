@@ -36,6 +36,10 @@ auto main() -> int {
     std::this_thread::sleep_for(std::chrono::seconds(1));
 
     cli->back_or_screen_on();
+    cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+    cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+    cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+
     std::this_thread::sleep_for(std::chrono::seconds(1));
     return 0;
 }

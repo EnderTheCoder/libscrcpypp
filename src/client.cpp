@@ -485,17 +485,40 @@ namespace scrcpy {
         this->send_control_msg(std::move(msg));
     }
 
+
     auto client::back_or_screen_on() const -> void {
         auto msg = std::make_unique<back_or_screen_on_msg>();
         msg->action = abs_enum_t{
-            android_motionevent_action::AMOTION_EVENT_ACTION_DOWN
+            android_keyevent_action::AKEY_EVENT_ACTION_DOWN
         };
         this->send_control_msg(std::move(msg));
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
         msg = std::make_unique<back_or_screen_on_msg>();
         msg->action = abs_enum_t{
-            android_motionevent_action::AMOTION_EVENT_ACTION_UP
+            android_keyevent_action::AKEY_EVENT_ACTION_UP
         };
+        this->send_control_msg(std::move(msg));
+    }
+
+    auto client::inject_keycode(const android_keycode keycode, const std::uint32_t repeat, const android_metastate metastate) const -> void {
+        auto msg = std::make_unique<inject_keycode_msg>();
+        msg->action = abs_enum_t{
+            android_keyevent_action::AKEY_EVENT_ACTION_DOWN
+        };
+        msg->keycode = abs_enum_t<android_keycode, std::uint32_t>{keycode};
+        msg->repeat = abs_int_t{repeat};
+        msg->metastate = abs_enum_t<android_metastate, std::uint32_t>{metastate};
+        this->send_control_msg(std::move(msg));
+
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+
+        msg = std::make_unique<inject_keycode_msg>();
+        msg->action = abs_enum_t{
+            android_keyevent_action::AKEY_EVENT_ACTION_UP
+        };
+        msg->keycode = abs_enum_t<android_keycode, std::uint32_t>{keycode};
+        msg->repeat = abs_int_t{repeat};
+        msg->metastate = abs_enum_t<android_metastate, std::uint32_t>{metastate};
         this->send_control_msg(std::move(msg));
     }
 

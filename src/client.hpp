@@ -6,7 +6,6 @@
 #define SCRCPY_CLIENT_HPP
 
 
-#include <utility>
 #include <deque>
 #include <filesystem>
 #include <ranges>
@@ -40,7 +39,7 @@ namespace scrcpy {
 
         auto is_recv_enabled() -> bool;
 
-        auto set_frame_consumer(const std::function<void(std::shared_ptr<frame>)>& consumer) -> void;
+        auto set_frame_consumer(const std::function<void(std::shared_ptr<frame>)> &consumer) -> void;
 
         auto frames() -> std::vector<std::shared_ptr<frame> >;
 
@@ -96,7 +95,7 @@ namespace scrcpy {
 
         auto text(const std::string &text) const -> void;
 
-        auto scroll(std::int32_t x, std::int32_t y,float h_scroll, float v_scroll) const -> void;
+        auto scroll(std::int32_t x, std::int32_t y, float h_scroll, float v_scroll) const -> void;
 
         auto expand_notification_panel() const -> void;
 
@@ -113,6 +112,9 @@ namespace scrcpy {
         auto start_app(const std::string &app_name) const -> void;
 
         auto back_or_screen_on() const -> void;
+
+        auto inject_keycode(android_keycode keycode, std::uint32_t repeat = 1,
+                            android_metastate metastate = android_metastate::AMETA_NONE) const -> void;
 
     private:
         auto send_single_byte_control_msg(control_msg_type msg_type) const -> void;
