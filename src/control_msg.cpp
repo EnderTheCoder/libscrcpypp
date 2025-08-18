@@ -104,4 +104,15 @@ namespace scrcpy {
         this->join_buf(action_button->serialize());
         return buf;
     }
+
+    auto back_or_screen_on_msg::buf_size() const -> std::size_t {
+        return 2;
+    }
+
+    auto back_or_screen_on_msg::serialize() -> std::vector<std::byte> {
+        auto buf = this->init_buf();
+        this->join_buf(msg_type->serialize());
+        this->join_buf(action->serialize());
+        return buf;
+    }
 }

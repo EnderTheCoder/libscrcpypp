@@ -404,6 +404,18 @@ namespace scrcpy {
         std::optional<ifp16_t> v_scroll;
         std::optional<abs_enum_t<android_motionevent_buttons, std::uint32_t> > action_button;
     };
+
+    class back_or_screen_on_msg final : public control_msg {
+    public:
+        [[nodiscard]] auto buf_size() const -> std::size_t override;
+
+        auto serialize() -> std::vector<std::byte> override;
+
+        std::optional<abs_enum_t<control_msg_type> > msg_type = abs_enum_t{
+            control_msg_type::SC_CONTROL_MSG_TYPE_BACK_OR_SCREEN_ON
+        };
+        std::optional<abs_enum_t<android_motionevent_action> > action;
+    };
 }
 
 

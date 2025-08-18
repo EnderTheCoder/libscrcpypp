@@ -24,7 +24,7 @@ using namespace scrcpy;
 
 auto main() -> int {
     const auto cli = client::create_shared("localhost", 1234);
-    cli->deploy("adb", "scrcpy-server", "3.1", 1234, std::nullopt, 1920);
+    cli->deploy("adb", "scrcpy-server", "3.3.1", 1234, std::nullopt, 1920);
     std::this_thread::sleep_for(std::chrono::seconds(1));
     cli->connect();
     cli->start_app("com.baidu.BaiduMap");
@@ -33,6 +33,9 @@ auto main() -> int {
     cli->slide(std::make_tuple(100, 100), std::make_tuple(800, 800));
     cli->slide(std::make_tuple(100, 800), std::make_tuple(800, 100));
     cli->scroll(260, 1260, 1.0, -1.0);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    cli->back_or_screen_on();
     std::this_thread::sleep_for(std::chrono::seconds(1));
     return 0;
 }

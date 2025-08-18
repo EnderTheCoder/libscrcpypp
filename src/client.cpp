@@ -485,7 +485,22 @@ namespace scrcpy {
         this->send_control_msg(std::move(msg));
     }
 
-    auto client::scroll(const std::int32_t x, const std::int32_t y, const float h_scroll, const float v_scroll) const -> void {
+    auto client::back_or_screen_on() const -> void {
+        auto msg = std::make_unique<back_or_screen_on_msg>();
+        msg->action = abs_enum_t{
+            android_motionevent_action::AMOTION_EVENT_ACTION_DOWN
+        };
+        this->send_control_msg(std::move(msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+        msg = std::make_unique<back_or_screen_on_msg>();
+        msg->action = abs_enum_t{
+            android_motionevent_action::AMOTION_EVENT_ACTION_UP
+        };
+        this->send_control_msg(std::move(msg));
+    }
+
+    auto client::scroll(const std::int32_t x, const std::int32_t y, const float h_scroll,
+                        const float v_scroll) const -> void {
         auto msg = std::make_unique<scroll_msg>();
         msg->position = position_t(x, y, this->width, this->height);
         msg->h_scroll = ifp16_t{h_scroll};

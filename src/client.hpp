@@ -112,6 +112,8 @@ namespace scrcpy {
 
         auto start_app(const std::string &app_name) const -> void;
 
+        auto back_or_screen_on() const -> void;
+
     private:
         auto send_single_byte_control_msg(control_msg_type msg_type) const -> void;
 
