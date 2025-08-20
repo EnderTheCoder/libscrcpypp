@@ -50,6 +50,10 @@ target_include_directories(scrcpy++-control-test PUBLIC test)
 target_sources(scrcpy++-control-test PRIVATE test/control_test.cpp)
 target_link_libraries(scrcpy++-control-test PRIVATE scrcpy++)
 
+add_executable(scrcpy++-reconnect-test)
+target_include_directories(scrcpy++-reconnect-test PUBLIC test)
+target_sources(scrcpy++-reconnect-test PRIVATE test/reconnect_test.cpp)
+target_link_libraries(scrcpy++-reconnect-test PRIVATE scrcpy++)
 
 install(TARGETS scrcpy++
         ARCHIVE DESTINATION lib
