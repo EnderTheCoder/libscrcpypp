@@ -71,7 +71,9 @@ namespace scrcpy {
         this->device_name = device_name_buffer.data();
         std::cout << "device name: " << device_name << std::endl;
         std::array<std::byte, 12> codec_meta_buffer = {};
-        boost::asio::read(*video_socket, boost::asio::buffer(codec_meta_buffer));
+        if (boost::asio::read(*video_socket, boost::asio::buffer(codec_meta_buffer)) != 12) {
+            throw std::runtime_error("Incomplete codec metadata received.");
+        }
         this->codec = std::string{reinterpret_cast<char *>(codec_meta_buffer.data()), 4};
         std::reverse(codec_meta_buffer.begin() + 4, codec_meta_buffer.begin() + 8);
         std::reverse(codec_meta_buffer.begin() + 8, codec_meta_buffer.end());
@@ -105,7 +107,11 @@ namespace scrcpy {
 
 
                 AVPacket *packet = av_packet_alloc();
+                if (packet == nullptr) {
+                    throw std::runtime_error("av_packet_alloc failed");
+                }
                 if (av_new_packet(packet, static_cast<std::int32_t>(packet_size))) {
+                    av_packet_free(&packet);
                     throw std::runtime_error("failed to allocate packet memory: ");
                 }
                 const auto frame_size = boost::asio::read(*this->video_socket,
