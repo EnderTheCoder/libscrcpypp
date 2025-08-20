@@ -33,6 +33,8 @@ namespace scrcpy {
 
         auto connect() -> void;
 
+        auto is_connected() const -> bool;
+
         auto start_recv() -> void;
 
         auto stop_recv() -> void;

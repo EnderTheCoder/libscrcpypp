@@ -81,6 +81,10 @@ namespace scrcpy {
         std::cout << "video stream working at resolution: " << this->height << "x" << this->width << std::endl;
     }
 
+    auto client::is_connected() const -> bool {
+        return this->video_socket != nullptr and video_socket->is_open() and control_socket != nullptr and control_socket->is_open();
+    }
+
     auto client::run_recv() -> void {
         try {
             recv_enabled = true;
