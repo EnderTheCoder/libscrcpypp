@@ -8,7 +8,7 @@ namespace scrcpy {
         return std::make_shared<client>(addr, port);
     }
 
-    client::client(const std::string_view addr, const std::uint16_t port) : addr(addr), port(port) {
+    client::client(const std::string_view addr, const std::uint16_t port) : addr(addr), port_(port) {
     }
 
     client::~client() {
@@ -32,7 +32,7 @@ namespace scrcpy {
         }
     }
 
-    auto client::get_port() const -> std::uint16_t { return port; }
+    auto client::get_port() const -> std::uint16_t { return port_; }
 
     auto client::get_addr() const -> std::string_view { return addr; }
 
@@ -41,7 +41,7 @@ namespace scrcpy {
         io_context = std::make_shared<boost::asio::io_context>();
 
         tcp::resolver resolver(*io_context);
-        const auto endpoints = resolver.resolve(addr, std::to_string(port));
+        const auto endpoints = resolver.resolve(addr, std::to_string(port_));
 
         if (this->video_socket != nullptr and video_socket->is_open()) {
             video_socket->close();
@@ -126,8 +126,8 @@ namespace scrcpy {
                     std::cerr << "end of video stream" << std::endl;
                     this->recv_enabled = false;
                     this->video_socket->close();
-                    if (this->consumer.has_value()) {
-                        this->consumer.value()(nullptr);
+                    if (this->consumer_.has_value()) {
+                        this->consumer_.value()(nullptr);
                     }
                     return;
                 }
@@ -160,9 +160,9 @@ namespace scrcpy {
                     continue;
                 }
 
-                if (this->consumer.has_value()) {
+                if (this->consumer_.has_value()) {
                     for (const auto &frame: frames) {
-                        this->consumer.value()(frame);
+                        this->consumer_.value()(frame);
                     }
                     continue;
                 }
@@ -204,18 +204,17 @@ namespace scrcpy {
     }
 
     auto client::set_frame_consumer(const std::function<void(std::shared_ptr<frame>)> &consumer) -> void {
-        this->consumer = consumer;
+        this->consumer_ = consumer;
     }
 
     auto client::frames() -> std::vector<std::shared_ptr<frame> > {
-        frame_mutex.lock();
+        std::lock_guard lock(this->frame_mutex);
         if (frame_queue.empty()) {
             return {};
         }
         std::vector<std::shared_ptr<frame> > frames = {};
         frames.insert(frames.end(), frame_queue.begin(), frame_queue.end());
         frame_queue.clear();
-        frame_mutex.unlock();
         return frames;
     }
 

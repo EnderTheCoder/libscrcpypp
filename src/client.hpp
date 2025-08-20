@@ -122,7 +122,7 @@ namespace scrcpy {
         auto send_single_byte_control_msg(control_msg_type msg_type) const -> void;
 
         std::string addr;
-        std::uint16_t port;
+        std::uint16_t port_;
 
         std::string device_name{};
         std::string codec{};
@@ -150,7 +150,7 @@ namespace scrcpy {
 
         AVPacket *config_packet = nullptr;
 
-        std::optional<std::function<void(std::shared_ptr<frame>)> > consumer;
+        std::optional<std::function<void(std::shared_ptr<frame>)> > consumer_;
     };
 }
 #endif //SCRCPY_CLIENT_HPP
