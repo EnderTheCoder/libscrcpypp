@@ -4,6 +4,7 @@
 #include <client.hpp>
 #include <boost/process/v2/stdio.hpp>
 namespace scrcpy {
+    using process = boost::process::v2::process;
     auto client::create_shared(std::string_view addr, std::uint16_t port) -> std::shared_ptr<client> {
         return std::make_shared<client>(addr, port);
     }

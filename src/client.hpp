@@ -130,7 +130,7 @@ namespace scrcpy {
 
         std::thread recv_handle;
 
-        std::optional<boost::process::process> server_proc;
+        std::optional<boost::process::v2::process> server_proc;
         std::optional<boost::asio::readable_pipe> server_rp;
 
         std::atomic<bool> recv_enabled{false};
