@@ -25,10 +25,11 @@ namespace scrcpy {
             control_socket->cancel();
             control_socket->close();
         }
-
-        if (server_c.running()) {
-            server_c.terminate();
-            server_c.wait();
+        if (server_proc.has_value()) {
+            if (server_proc->running()) {
+                server_proc->terminate();
+                server_proc->wait();
+            }
         }
     }
 
@@ -38,32 +39,32 @@ namespace scrcpy {
 
     auto client::connect() -> void {
         using boost::asio::ip::tcp;
-        io_context = std::make_shared<boost::asio::io_context>();
 
-        tcp::resolver resolver(*io_context);
+        tcp::resolver resolver(ctx);
         const auto endpoints = resolver.resolve(addr, std::to_string(port_));
 
         if (this->video_socket != nullptr and video_socket->is_open()) {
             video_socket->close();
         }
-        this->video_socket = std::make_shared<tcp::socket>(*io_context);
+        this->video_socket = std::make_shared<tcp::socket>(ctx);
         boost::asio::connect(*this->video_socket, endpoints);
 
         if (this->control_socket != nullptr and control_socket->is_open()) {
             control_socket->close();
         }
-        this->control_socket = std::make_shared<tcp::socket>(*io_context);
+        this->control_socket = std::make_shared<tcp::socket>(ctx);
         boost::asio::connect(*this->control_socket, endpoints);
 
-        std::array<char, 1> dummy_byte_buffer = {};
         try {
+            std::array<char, 1> dummy_byte_buffer = {};
             boost::asio::read(*video_socket, boost::asio::buffer(dummy_byte_buffer));
             if (dummy_byte_buffer[0] != 0x00) {
                 throw std::runtime_error(std::format("broken packet, expect 0x00 but got {:#x}.",
                                                      dummy_byte_buffer[0]));
             }
             std::cout << "successfully read dummy byte." << std::endl;
-        } catch (std::exception &e) {
+        }
+        catch (std::exception& e) {
             throw std::runtime_error(std::format("error reading dummy byte: {}", e.what()));
         }
         std::array<char, 64> device_name_buffer = {};
@@ -74,17 +75,18 @@ namespace scrcpy {
         if (boost::asio::read(*video_socket, boost::asio::buffer(codec_meta_buffer)) != 12) {
             throw std::runtime_error("Incomplete codec metadata received.");
         }
-        this->codec = std::string{reinterpret_cast<char *>(codec_meta_buffer.data()), 4};
+        this->codec = std::string{reinterpret_cast<char*>(codec_meta_buffer.data()), 4};
         std::reverse(codec_meta_buffer.begin() + 4, codec_meta_buffer.begin() + 8);
         std::reverse(codec_meta_buffer.begin() + 8, codec_meta_buffer.end());
-        this->width = *reinterpret_cast<std::uint32_t *>(codec_meta_buffer.data() + 4);
-        this->height = *reinterpret_cast<std::uint32_t *>(codec_meta_buffer.data() + 8);\
+        this->width = *reinterpret_cast<std::uint32_t*>(codec_meta_buffer.data() + 4);
+        this->height = *reinterpret_cast<std::uint32_t*>(codec_meta_buffer.data() + 8);\
         std::cout << "video stream codec: " << this->codec << std::endl;
         std::cout << "video stream working at resolution: " << this->height << "x" << this->width << std::endl;
     }
 
     auto client::is_connected() const -> bool {
-        return this->video_socket != nullptr and video_socket->is_open() and control_socket != nullptr and control_socket->is_open();
+        return this->video_socket != nullptr and video_socket->is_open() and control_socket != nullptr and
+            control_socket->is_open();
     }
 
     auto client::run_recv() -> void {
@@ -101,12 +103,12 @@ namespace scrcpy {
                 const bool keyframe_flag = frame_header_buffer.at(0) >> 6 & 0x01;
                 std::reverse(frame_header_buffer.begin(), frame_header_buffer.begin() + 8);
                 frame_header_buffer.at(7) <<= 2;
-                const auto pts = *reinterpret_cast<std::uint64_t *>(frame_header_buffer.data());
+                const auto pts = *reinterpret_cast<std::uint64_t*>(frame_header_buffer.data());
                 std::reverse(frame_header_buffer.begin() + 8, frame_header_buffer.end());
-                const auto packet_size = *reinterpret_cast<std::uint32_t *>(frame_header_buffer.data() + 8);
+                const auto packet_size = *reinterpret_cast<std::uint32_t*>(frame_header_buffer.data() + 8);
 
 
-                AVPacket *packet = av_packet_alloc();
+                AVPacket* packet = av_packet_alloc();
                 if (packet == nullptr) {
                     throw std::runtime_error("av_packet_alloc failed");
                 }
@@ -134,7 +136,8 @@ namespace scrcpy {
 
                 if (config_flag) {
                     packet->pts = AV_NOPTS_VALUE;
-                } else {
+                }
+                else {
                     packet->pts = static_cast<std::int64_t>(pts);
                 }
 
@@ -145,7 +148,8 @@ namespace scrcpy {
                 packet->dts = packet->pts;
                 if (config_flag) {
                     config_packet = packet;
-                } else if (config_packet != nullptr) {
+                }
+                else if (config_packet != nullptr) {
                     if (av_grow_packet(packet, config_packet->size)) {
                         throw std::runtime_error("failed to grow packet");
                     }
@@ -161,17 +165,18 @@ namespace scrcpy {
                 }
 
                 if (this->consumer_.has_value()) {
-                    for (const auto &frame: frames) {
+                    for (const auto& frame : frames) {
                         this->consumer_.value()(frame);
                     }
                     continue;
                 }
 
                 frame_mutex.lock();
-                frame_queue.insert(frame_queue.end(), frames.begin(), frames.end());
+                std::ranges::copy(frames, std::back_inserter(frame_queue));
                 frame_mutex.unlock();
             }
-        } catch (std::exception &) {
+        }
+        catch (std::exception&) {
             this->recv_enabled = false;
             throw;
         }
@@ -186,7 +191,8 @@ namespace scrcpy {
         recv_handle = std::thread([t = shared_from_this()] {
             try {
                 t->run_recv();
-            } catch (std::exception &e) {
+            }
+            catch (std::exception& e) {
                 std::cerr << "recv stopped: " << e.what() << std::endl;
             }
         });
@@ -203,16 +209,16 @@ namespace scrcpy {
         return this->recv_enabled;
     }
 
-    auto client::set_frame_consumer(const std::function<void(std::shared_ptr<frame>)> &consumer) -> void {
+    auto client::set_frame_consumer(const std::function<void(std::shared_ptr<frame>)>& consumer) -> void {
         this->consumer_ = consumer;
     }
 
-    auto client::frames() -> std::vector<std::shared_ptr<frame> > {
+    auto client::frames() -> std::vector<std::shared_ptr<frame>> {
         std::lock_guard lock(this->frame_mutex);
         if (frame_queue.empty()) {
             return {};
         }
-        std::vector<std::shared_ptr<frame> > frames = {};
+        std::vector<std::shared_ptr<frame>> frames = {};
         frames.insert(frames.end(), frame_queue.begin(), frame_queue.end());
         frame_queue.clear();
         return frames;
@@ -222,28 +228,43 @@ namespace scrcpy {
         return {width, height};
     }
 
-    auto client::read_forward(
-        const std::filesystem::path &adb_bin) -> std::vector<std::array<std::string, 3> > {
+    auto client::read_forward(const std::filesystem::path& adb_bin) -> std::vector<std::array<std::string, 3>> {
         using namespace boost::process;
-        ipstream out_stream;
-        using std::operator ""sv;
-        child list_c(std::format("{} forward --list", adb_bin.string()), std_out > out_stream);
-        std::vector<std::array<std::string, 3> > forward_list;
-        list_c.wait();
-        for (std::string line; out_stream && std::getline(out_stream, line) && !line.empty();) {
-            auto item = std::array<std::string, 3>{};
-            for (const auto [idx, part]: std::views::split(line, " "sv) | std::views::enumerate) {
-                item.at(idx) = std::string_view(part);
+        boost::asio::io_context ctx;
+        boost::asio::readable_pipe rp(ctx);
+        process list_proc(ctx, adb_bin.string(), {"forward", "--list"}, process_stdio{{}, rp, {}});
+
+        std::vector<std::array<std::string, 3>> forward_list;
+        std::string line;
+        while (rp.is_open()) {
+            boost::asio::read_until(rp, boost::asio::dynamic_buffer(line), '\n');
+            if (!line.empty()) {
+                if (!line.empty() && line.back() == '\n') {
+                    line.pop_back();
+                }
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                if (!line.empty()) {
+                    using std::operator ""sv;
+
+                    auto item = std::array<std::string, 3>{};
+                    for (const auto [idx, part] : std::views::split(line, " "sv) | std::views::enumerate) {
+                        item.at(idx) = std::string_view(part);
+                    }
+                    forward_list.emplace_back(item);
+                }
+                line.clear();
             }
-            forward_list.emplace_back(item);
         }
         return forward_list;
     }
 
     std::optional<std::string> client::forward_list_contains_tcp_port(
-        const std::filesystem::path &adb_bin,
+        const std::filesystem::path& adb_bin,
         const std::uint16_t port) {
-        for (const auto &[serial, local, remote]: read_forward(adb_bin)) {
+        for (const auto& [serial, local, remote] : read_forward(adb_bin)) {
             if (local.contains(std::format("tcp:{}", port))) {
                 return serial;
             }
@@ -251,56 +272,90 @@ namespace scrcpy {
         return std::nullopt;
     }
 
-    auto client::list_dev_serials(const std::filesystem::path &adb_bin) -> std::vector<std::string> {
+    auto client::list_dev_serials(const std::filesystem::path& adb_bin) -> std::vector<std::string> {
         using namespace boost::process;
-        ipstream out_stream;
+        using namespace boost::asio;
+        io_context ctx;
+        readable_pipe rp(ctx);
         using std::operator ""sv;
-        child list_c(std::format("{} devices", adb_bin.string()), std_out > out_stream);
+        process list_proc(ctx, adb_bin.string(), {"devices"}, process_stdio{{}, rp, {}});
         auto sig_start = false;
+        std::string line;
         std::vector<std::string> serials;
-        list_c.wait();
-        for (std::string line; out_stream && std::getline(out_stream, line) && !line.empty();) {
-            if (sig_start and line.contains("device")) {
-                for (const auto [s_begin, s_end]: std::views::split(line, "\t"sv)) {
-                    auto serial = std::string_view(s_begin, s_end);
-                    serials.emplace_back(serial);
-                    break;
+        list_proc.wait();
+        while (rp.is_open()) {
+            read_until(rp, dynamic_buffer(line), '\n');
+            if (!line.empty()) {
+                if (!line.empty() && line.back() == '\n') {
+                    line.pop_back();
                 }
-            } else if (line == "List of devices attached") {
-                sig_start = true;
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                if (!line.empty()) {
+                    if (sig_start and line.contains("device")) {
+                        for (const auto [s_begin, s_end] : std::views::split(line, "\t"sv)) {
+                            auto serial = std::string_view(s_begin, s_end);
+                            serials.emplace_back(serial);
+                            break;
+                        }
+                    }
+                    else if (line == "List of devices attached") {
+                        sig_start = true;
+                    }
+                }
+                line.clear();
             }
         }
         return serials;
     }
 
-    auto client::deploy(const std::filesystem::path &adb_bin,
-                        const std::filesystem::path &scrcpy_jar_bin,
-                        const std::string &scrcpy_server_version, const std::uint16_t port,
-                        const std::optional<std::string> &device_serial,
-                        const std::optional<std::uint16_t> &max_size) -> void {
+    auto client::deploy(const std::filesystem::path& adb_bin,
+                        const std::filesystem::path& scrcpy_jar_bin,
+                        const std::string& scrcpy_server_version, const std::uint16_t port,
+                        const std::optional<std::string>& device_serial,
+                        const std::optional<std::uint16_t>& max_size) -> void {
         //adb shell CLASSPATH=/sdcard/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 3.1 tunnel_forward=true cleanup=false audio=false control=false max_size=1920
         using namespace boost::process;
+        using namespace boost::asio;
         auto adb_exec = adb_bin.string();
         std::string serial;
         if (device_serial.has_value()) {
             adb_exec += " -s " + device_serial.value();
             serial = device_serial.value();
-        } else {
-            ipstream out_stream;
-            auto serial_c = child(std::format("{} get-serialno", adb_exec), std_out > out_stream);
-            serial_c.wait();
-            if (serial_c.exit_code() != 0) {
+        }
+        else {
+            readable_pipe serial_rp(ctx);
+
+            auto serial_proc = process(ctx, adb_exec, {"get-serialno"}, process_stdio{{}, serial_rp, {}});
+            serial_proc.wait();
+            if (serial_proc.exit_code() != 0) {
                 throw std::runtime_error("failed to get adb device serialno");
             }
-            for (std::string line; out_stream && std::getline(out_stream, line) && !line.empty();) {
-                serial = line;
-                break; // read first line only
+            std::string line;
+            while (serial_rp.is_open()) {
+                read_until(serial_rp, dynamic_buffer(line), '\n');
+                if (!line.empty()) {
+                    if (!line.empty() && line.back() == '\n') {
+                        line.pop_back();
+                    }
+                    if (!line.empty() && line.back() == '\r') {
+                        line.pop_back();
+                    }
+
+                    if (!line.empty()) {
+                        serial = line;
+                        break;
+                    }
+                    line.clear();
+                }
             }
         }
 
-        if (server_c.running()) {
+        if (server_proc->running()) {
             std::cerr << std::format("[{}]scrcpy server it already running, terminating...", serial) << std::endl;
-            server_c.terminate();
+            server_proc->terminate();
             std::cerr << std::format("[{}]scrcpy server terminated", serial) << std::endl;
         }
 
@@ -314,9 +369,9 @@ namespace scrcpy {
             adb_exec, scrcpy_server_version, param_max_size
         );
 
-        child upload_c(upload_cmd);
-        upload_c.wait();
-        if (upload_c.exit_code() != 0) {
+        process upload_proc(ctx, upload_cmd,{});
+        upload_proc.wait();
+        if (upload_proc.exit_code() != 0) {
             throw std::runtime_error("error uploading scrcpy server jar");
         }
 
@@ -329,20 +384,24 @@ namespace scrcpy {
                         existing_serial.value(), port)
                 );
             }
-        } else {
-            ipstream out_stream;
-            child forward_c(forward_cmd, std_out > out_stream);
-            forward_c.wait();
-            if (forward_c.exit_code() != 0) {
+        }
+        else {
+            readable_pipe forward_rp(ctx);
+            process forward_proc(ctx,forward_cmd, {}, process_stdio{{}, forward_rp, {}});
+            forward_proc.wait();
+            if (forward_proc.exit_code() != 0) {
+                streambuf buffer;
+                read_until(forward_rp, buffer, '\n');
+                std::istream is(&buffer);
                 std::string cause;
-                for (std::string line; out_stream && std::getline(out_stream, line) && !line.empty();) {
-                    cause += line;
-                }
+                std::getline(is, cause);
                 throw std::runtime_error(std::format("error forwarding scrcpy to local tcp port: {}", cause));
             }
+
         }
-        server_out_stream = ipstream();
-        server_c = child{exec_cmd, std_out > server_out_stream};
+
+        this->server_rp = readable_pipe(ctx);
+        this->server_proc = process{ctx, exec_cmd, {}, process_stdio{{}, server_rp.value(), {}}};
 
         std::string first_line;
         bool output_received = false;
@@ -351,50 +410,64 @@ namespace scrcpy {
             constexpr int timeout_ms = 10000;
             if (auto elapsed = std::chrono::steady_clock::now() - start_time;
                 std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > timeout_ms) {
-                server_c.terminate();
+                server_proc->terminate();
                 throw std::runtime_error("server startup timed out (10s)");
             }
 
-            if (!server_c.running()) {
-                int exit_code = server_c.exit_code();
+            if (!server_proc->running()) {
+                int exit_code = server_proc->exit_code();
                 throw std::runtime_error(std::format("server process exited unexpectedly (code: {})", exit_code));
             }
-
-            if (std::getline(server_out_stream, first_line)) {
-                if (not first_line.empty() and first_line.contains("[server]")) {
-                    output_received = true;
-                    break;
-                }
+            read_until(server_rp.value(), dynamic_buffer(first_line), '\n');
+            if (not first_line.empty() and first_line.contains("[server]")) {
+                output_received = true;
+                break;
             }
+
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
         if (!output_received) {
-            server_c.terminate();
+            if (server_proc.has_value()) server_proc->terminate();
             throw std::runtime_error("failed to get server startup confirmation");
         }
     }
 
     auto client::terminate() -> void {
-        if (this->server_c.running()) {
-            this->server_c.terminate();
+        if (this->server_proc.has_value() and this->server_proc->running()) {
+            this->server_proc->terminate();
         }
     }
 
     auto client::server_alive() -> bool {
-        return this->server_c.running();
+        return this->server_proc.has_value() and this->server_proc->running();
     }
 
-    auto client::send_control_msg(const std::shared_ptr<control_msg> &msg) const -> void {
+    auto client::send_control_msg(const std::shared_ptr<control_msg>& msg) const -> void {
         auto buffer = msg->serialize();
         this->control_socket->send(boost::asio::buffer(buffer, buffer.size()));
     }
 
     auto client::get_server_dbg_logs() -> std::vector<std::string> {
         std::vector<std::string> dbg_logs;
-        for (std::string line; this->server_out_stream && std::getline(this->server_out_stream, line) && !line.empty()
-             ;) {
-            dbg_logs.push_back(line);
+        using namespace boost::asio;
+        std::string line;
+        while (this->server_rp->is_open()) {
+            read_until(this->server_rp.value(), dynamic_buffer(line), '\n');
+            if (!line.empty()) {
+                if (!line.empty() && line.back() == '\n') {
+                    line.pop_back();
+                }
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                if (!line.empty()) {
+                    dbg_logs.push_back(line);
+                    break;
+                }
+                line.clear();
+            }
         }
         return dbg_logs;
     }
@@ -436,8 +509,8 @@ namespace scrcpy {
 
     auto client::slide(std::tuple<std::int32_t, std::int32_t> begin, std::tuple<std::int32_t, std::int32_t> end,
                        const std::uint64_t pointer_id, std::chrono::milliseconds duration) const -> void {
-        auto &[x0, y0] = begin;
-        auto &[x1, y1] = end;
+        auto& [x0, y0] = begin;
+        auto& [x1, y1] = end;
 
         auto x_diff = x1 - x0;
         auto y_diff = y1 - y0;
@@ -458,7 +531,7 @@ namespace scrcpy {
         this->touch(x, y, android_motionevent_action::AMOTION_EVENT_ACTION_UP, pointer_id);
     }
 
-    auto client::text(const std::string &text) const -> void {
+    auto client::text(const std::string& text) const -> void {
         auto msg = std::make_unique<text_msg>();
         msg->text = string_t{text, 300};
         this->send_control_msg(std::move(msg));
@@ -488,9 +561,9 @@ namespace scrcpy {
         this->send_single_byte_control_msg(control_msg_type::SC_CONTROL_MSG_TYPE_RESET_VIDEO);
     }
 
-    auto client::start_app(const std::string &app_name) const -> void {
+    auto client::start_app(const std::string& app_name) const -> void {
         auto msg = std::make_unique<start_app_msg>();
-        msg->app_name = string_t<abs_int_t<std::uint8_t> >{app_name};
+        msg->app_name = string_t<abs_int_t<std::uint8_t>>{app_name};
         this->send_control_msg(std::move(msg));
     }
 
@@ -509,7 +582,8 @@ namespace scrcpy {
         this->send_control_msg(std::move(msg));
     }
 
-    auto client::inject_keycode(const android_keycode keycode, const std::uint32_t repeat, const android_metastate metastate) const -> void {
+    auto client::inject_keycode(const android_keycode keycode, const std::uint32_t repeat,
+                                const android_metastate metastate) const -> void {
         auto msg = std::make_unique<inject_keycode_msg>();
         msg->action = abs_enum_t{
             android_keyevent_action::AKEY_EVENT_ACTION_DOWN

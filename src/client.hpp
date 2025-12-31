@@ -9,7 +9,6 @@
 #include <deque>
 #include <filesystem>
 #include <ranges>
-#include <bitset>
 #include <control_msg.hpp>
 
 #include <boost/asio.hpp>
@@ -131,8 +130,8 @@ namespace scrcpy {
 
         std::thread recv_handle;
 
-        boost::process::child server_c;
-        boost::process::ipstream server_out_stream;
+        std::optional<boost::process::process> server_proc;
+        std::optional<boost::asio::readable_pipe> server_rp;
 
         std::atomic<bool> recv_enabled{false};
         std::atomic<bool> parse_enabled{false};
@@ -140,7 +139,7 @@ namespace scrcpy {
         std::shared_ptr<boost::asio::ip::tcp::socket> video_socket;
         std::shared_ptr<boost::asio::ip::tcp::socket> control_socket;
 
-        std::shared_ptr<boost::asio::io_context> io_context;
+        boost::asio::io_context ctx;
 
         std::mutex frame_mutex;
 
