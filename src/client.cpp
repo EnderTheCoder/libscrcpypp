@@ -2,7 +2,7 @@
 // Created by ender on 25-2-15.
 //
 #include <client.hpp>
-
+#include <boost/process/v2/stdio.hpp>
 namespace scrcpy {
     auto client::create_shared(std::string_view addr, std::uint16_t port) -> std::shared_ptr<client> {
         return std::make_shared<client>(addr, port);

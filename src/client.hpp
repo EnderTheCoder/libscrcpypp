@@ -12,7 +12,7 @@
 #include <control_msg.hpp>
 
 #include <boost/asio.hpp>
-#include <boost/process.hpp>
+#include <boost/process/v2/process.hpp>
 
 #include "decoder.hpp"
 #include "frame.hpp"
