@@ -6,7 +6,7 @@ if (WIN32)
 endif ()
 set(CMAKE_CXX_STANDARD 23)
 set(ENV{PKG_CONFIGFLAGS} "--static")
-find_package(Boost 1.80.0 COMPONENTS filesystem system REQUIRED)
+find_package(Boost 1.80.0 COMPONENTS process filesystem system REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenCV 4.0 REQUIRED)
 pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
@@ -30,6 +30,7 @@ target_include_directories(scrcpy++ PUBLIC
 target_link_libraries(scrcpy++
         PRIVATE Boost::filesystem
         PRIVATE Boost::system
+        PRIVATE Boost::process
         PRIVATE PkgConfig::LIBAV
         PUBLIC ${OpenCV_LIBS}
         PRIVATE $<$<PLATFORM_ID:Windows>:ws2_32>
