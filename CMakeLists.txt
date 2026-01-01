@@ -6,7 +6,6 @@ if (WIN32)
 endif ()
 set(CMAKE_CXX_STANDARD 23)
 set(ENV{PKG_CONFIGFLAGS} "--static")
-add_definitions(-DBOOST_PROCESS_USE_V2)
 find_package(Boost 1.80.0 COMPONENTS filesystem system REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenCV 4.0 REQUIRED)
@@ -22,16 +21,18 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
 include_directories(${Boost_INCLUDE_DIRS})
 
 add_library(scrcpy++ STATIC src/client.cpp src/decoder.cpp src/frame.cpp src/control_msg.cpp)
+target_compile_definitions(scrcpy++ PRIVATE BOOST_PROCESS_USE_V1)
 target_include_directories(scrcpy++ PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
         $<INSTALL_INTERFACE:include/scrcpy++>
 )
+
 target_link_libraries(scrcpy++
-        PUBLIC Boost::filesystem
-        PUBLIC Boost::system
-        PUBLIC PkgConfig::LIBAV
-        PUBLIC ${OpenCV_LIBS}
-        PUBLIC $<$<PLATFORM_ID:Windows>:ws2_32>
+        PRIVATE Boost::filesystem
+        PRIVATE Boost::system
+        PRIVATE PkgConfig::LIBAV
+        PRIVATE ${OpenCV_LIBS}
+        PRIVATE $<$<PLATFORM_ID:Windows>:ws2_32>
 )
 
 add_executable(scrcpy++-video-test)
