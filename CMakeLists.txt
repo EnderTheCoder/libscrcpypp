@@ -21,7 +21,7 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
 include_directories(${Boost_INCLUDE_DIRS})
 
 add_library(scrcpy++ STATIC src/client.cpp src/decoder.cpp src/frame.cpp src/control_msg.cpp)
-target_compile_definitions(scrcpy++ PRIVATE BOOST_PROCESS_USE_V1)
+
 target_include_directories(scrcpy++ PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
         $<INSTALL_INTERFACE:include/scrcpy++>
