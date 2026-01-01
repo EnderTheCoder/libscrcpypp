@@ -6,7 +6,7 @@ if (WIN32)
 endif ()
 set(CMAKE_CXX_STANDARD 23)
 set(ENV{PKG_CONFIGFLAGS} "--static")
-
+add_definitions(-DBOOST_PROCESS_USE_V2)
 find_package(Boost 1.80.0 COMPONENTS filesystem system REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(OpenCV 4.0 REQUIRED)
