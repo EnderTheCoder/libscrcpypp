@@ -31,7 +31,7 @@ target_link_libraries(scrcpy++
         PRIVATE Boost::filesystem
         PRIVATE Boost::system
         PRIVATE Boost::process
-        PRIVATE PkgConfig::LIBAV
+        PUBLIC PkgConfig::LIBAV
         PUBLIC ${OpenCV_LIBS}
         PRIVATE $<$<PLATFORM_ID:Windows>:ws2_32>
 )
