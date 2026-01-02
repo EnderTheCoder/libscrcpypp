@@ -3,7 +3,7 @@
 //
 #include <client.hpp>
 #include <boost/process/v2/stdio.hpp>
-
+#include <boost/algorithm/string/trim.hpp>
 namespace scrcpy {
     using process = boost::process::v2::process;
     using process_stdio = boost::process::v2::process_stdio;
@@ -237,30 +237,16 @@ namespace scrcpy {
         boost::asio::io_context ctx;
         boost::asio::readable_pipe rp(ctx);
         process list_proc(ctx, adb_bin.string(), {"forward", "--list"}, process_stdio{{}, rp, {}});
-
+        const auto lines = read_lines_from_rp(rp);
         std::vector<std::array<std::string, 3>> forward_list;
-        std::string line;
-        while (rp.is_open()) {
-            boost::asio::read_until(rp, boost::asio::dynamic_buffer(line), '\n');
-            if (!line.empty()) {
-                if (!line.empty() && line.back() == '\n') {
-                    line.pop_back();
-                }
-                if (!line.empty() && line.back() == '\r') {
-                    line.pop_back();
-                }
+        for (const auto& line : lines) {
+            using std::operator ""sv;
 
-                if (!line.empty()) {
-                    using std::operator ""sv;
-
-                    auto item = std::array<std::string, 3>{};
-                    for (const auto [idx, part] : std::views::split(line, " "sv) | std::views::enumerate) {
-                        item.at(idx) = std::string_view(part);
-                    }
-                    forward_list.emplace_back(item);
-                }
-                line.clear();
+            auto item = std::array<std::string, 3>{};
+            for (const auto [idx, part] : std::views::split(line, " "sv) | std::views::enumerate) {
+                item.at(idx) = std::string_view(part);
             }
+            forward_list.emplace_back(item);
         }
         return forward_list;
     }
@@ -284,32 +270,18 @@ namespace scrcpy {
         using std::operator ""sv;
         process list_proc(ctx, adb_bin.string(), {"devices"}, process_stdio{{}, rp, {}});
         auto sig_start = false;
-        std::string line;
         std::vector<std::string> serials;
         list_proc.wait();
-        while (rp.is_open()) {
-            read_until(rp, dynamic_buffer(line), '\n');
-            if (!line.empty()) {
-                if (!line.empty() && line.back() == '\n') {
-                    line.pop_back();
+        for (const auto lines = read_lines_from_rp(rp); const auto& line : lines) {
+            if (sig_start and line.contains("device")) {
+                for (const auto [s_begin, s_end] : std::views::split(line, "\t"sv)) {
+                    auto serial = std::string_view(s_begin, s_end);
+                    serials.emplace_back(serial);
+                    break;
                 }
-                if (!line.empty() && line.back() == '\r') {
-                    line.pop_back();
-                }
-
-                if (!line.empty()) {
-                    if (sig_start and line.contains("device")) {
-                        for (const auto [s_begin, s_end] : std::views::split(line, "\t"sv)) {
-                            auto serial = std::string_view(s_begin, s_end);
-                            serials.emplace_back(serial);
-                            break;
-                        }
-                    }
-                    else if (line == "List of devices attached") {
-                        sig_start = true;
-                    }
-                }
-                line.clear();
+            }
+            else if (line == "List of devices attached") {
+                sig_start = true;
             }
         }
         return serials;
@@ -337,24 +309,9 @@ namespace scrcpy {
             if (serial_proc.exit_code() != 0) {
                 throw std::runtime_error("failed to get adb device serialno");
             }
-            std::string line;
-            while (serial_rp.is_open()) {
-                read_until(serial_rp, dynamic_buffer(line), '\n');
-                if (!line.empty()) {
-                    if (!line.empty() && line.back() == '\n') {
-                        line.pop_back();
-                    }
-                    if (!line.empty() && line.back() == '\r') {
-                        line.pop_back();
-                    }
 
-                    if (!line.empty()) {
-                        serial = line;
-                        break;
-                    }
-                    line.clear();
-                }
-            }
+            serial = read_from_rp(serial_rp);
+            boost::algorithm::trim(serial);
         }
 
         if (server_proc->running()) {
@@ -393,20 +350,16 @@ namespace scrcpy {
             readable_pipe forward_rp(ctx);
             process forward_proc(ctx, forward_cmd, {}, process_stdio{{}, forward_rp, {}});
             forward_proc.wait();
+
             if (forward_proc.exit_code() != 0) {
-                streambuf buffer;
-                read_until(forward_rp, buffer, '\n');
-                std::istream is(&buffer);
-                std::string cause;
-                std::getline(is, cause);
-                throw std::runtime_error(std::format("error forwarding scrcpy to local tcp port: {}", cause));
+                auto reason = read_from_rp(forward_rp);
+                throw std::runtime_error(std::format("error forwarding scrcpy to local tcp port: {}", reason));
             }
         }
 
         this->server_rp = readable_pipe(ctx);
         this->server_proc = process{ctx, exec_cmd, {}, process_stdio{{}, server_rp.value(), {}}};
 
-        std::string first_line;
         bool output_received = false;
         auto start_time = std::chrono::steady_clock::now();
         while (true) {
@@ -421,12 +374,11 @@ namespace scrcpy {
                 int exit_code = server_proc->exit_code();
                 throw std::runtime_error(std::format("server process exited unexpectedly (code: {})", exit_code));
             }
-            read_until(server_rp.value(), dynamic_buffer(first_line), '\n');
-            if (not first_line.empty() and first_line.contains("[server]")) {
+            auto lines = read_lines_from_rp(server_rp.value());
+            if (auto& first_line = lines.front(); not first_line.empty() and first_line.contains("[server]")) {
                 output_received = true;
                 break;
             }
-
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
