@@ -40,18 +40,18 @@ namespace scrcpy {
 
         auto is_recv_enabled() -> bool;
 
-        auto set_frame_consumer(const std::function<void(std::shared_ptr<frame>)> &consumer) -> void;
+        auto set_frame_consumer(const std::function<void(std::shared_ptr<frame>)>& consumer) -> void;
 
-        auto frames() -> std::vector<std::shared_ptr<frame> >;
+        auto frames() -> std::vector<std::shared_ptr<frame>>;
 
         auto video_size() -> std::tuple<std::uint64_t, std::uint64_t>;
 
-        static auto read_forward(const std::filesystem::path &adb_bin) -> std::vector<std::array<std::string, 3> >;
+        static auto read_forward(const std::filesystem::path& adb_bin) -> std::vector<std::array<std::string, 3>>;
 
         static auto forward_list_contains_tcp_port(
-            const std::filesystem::path &adb_bin, std::uint16_t port) -> std::optional<std::string>;
+            const std::filesystem::path& adb_bin, std::uint16_t port) -> std::optional<std::string>;
 
-        static auto list_dev_serials(const std::filesystem::path &adb_bin) -> std::vector<std::string>;
+        static auto list_dev_serials(const std::filesystem::path& adb_bin) -> std::vector<std::string>;
 
         auto get_codec() -> std::string {
             return this->codec;
@@ -59,18 +59,18 @@ namespace scrcpy {
 
         auto run_recv() -> void;
 
-        auto deploy(const std::filesystem::path &adb_bin,
-                    const std::filesystem::path &scrcpy_jar_bin,
-                    const std::string &scrcpy_server_version,
+        auto deploy(const std::filesystem::path& adb_bin,
+                    const std::filesystem::path& scrcpy_jar_bin,
+                    const std::string& scrcpy_server_version,
                     std::uint16_t port,
-                    const std::optional<std::string> &device_serial = std::nullopt,
-                    const std::optional<std::uint16_t> &max_size = std::nullopt) -> void;
+                    const std::optional<std::string>& device_serial = std::nullopt,
+                    const std::optional<std::uint16_t>& max_size = std::nullopt) -> void;
 
         auto terminate() -> void;
 
         auto server_alive() -> bool;
 
-        auto send_control_msg(const std::shared_ptr<control_msg> &msg) const -> void;
+        auto send_control_msg(const std::shared_ptr<control_msg>& msg) const -> void;
 
         auto get_server_dbg_logs() -> std::vector<std::string>;
 
@@ -94,7 +94,7 @@ namespace scrcpy {
 
         auto click(std::int32_t x, std::int32_t y, std::uint64_t pointer_id = pointer_id::GENERIC_FINGER) const -> void;
 
-        auto text(const std::string &text) const -> void;
+        auto text(const std::string& text) const -> void;
 
         auto scroll(std::int32_t x, std::int32_t y, float h_scroll, float v_scroll) const -> void;
 
@@ -110,7 +110,7 @@ namespace scrcpy {
 
         auto reset_video() const -> void;
 
-        auto start_app(const std::string &app_name) const -> void;
+        auto start_app(const std::string& app_name) const -> void;
 
         auto back_or_screen_on() const -> void;
 
@@ -118,6 +118,10 @@ namespace scrcpy {
                             android_metastate metastate = android_metastate::AMETA_NONE) const -> void;
 
     private:
+        static auto read_lines_from_rp( boost::asio::readable_pipe& rp) -> std::vector<std::string> ;
+
+        static auto read_from_rp(boost::asio::readable_pipe& rp) -> std::string ;
+
         auto send_single_byte_control_msg(control_msg_type msg_type) const -> void;
 
         std::string addr;
@@ -143,13 +147,13 @@ namespace scrcpy {
 
         std::mutex frame_mutex;
 
-        std::deque<std::shared_ptr<frame> > frame_queue;
+        std::deque<std::shared_ptr<frame>> frame_queue;
 
         h264_decoder decoder;
 
-        AVPacket *config_packet = nullptr;
+        AVPacket* config_packet = nullptr;
 
-        std::optional<std::function<void(std::shared_ptr<frame>)> > consumer_;
+        std::optional<std::function<void(std::shared_ptr<frame>)>> consumer_;
     };
 }
 #endif //SCRCPY_CLIENT_HPP

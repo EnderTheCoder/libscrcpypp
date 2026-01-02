@@ -3,9 +3,11 @@
 //
 #include <client.hpp>
 #include <boost/process/v2/stdio.hpp>
+
 namespace scrcpy {
     using process = boost::process::v2::process;
     using process_stdio = boost::process::v2::process_stdio;
+
     auto client::create_shared(std::string_view addr, std::uint16_t port) -> std::shared_ptr<client> {
         return std::make_shared<client>(addr, port);
     }
@@ -371,7 +373,7 @@ namespace scrcpy {
             adb_exec, scrcpy_server_version, param_max_size
         );
 
-        process upload_proc(ctx, upload_cmd,{});
+        process upload_proc(ctx, upload_cmd, {});
         upload_proc.wait();
         if (upload_proc.exit_code() != 0) {
             throw std::runtime_error("error uploading scrcpy server jar");
@@ -389,7 +391,7 @@ namespace scrcpy {
         }
         else {
             readable_pipe forward_rp(ctx);
-            process forward_proc(ctx,forward_cmd, {}, process_stdio{{}, forward_rp, {}});
+            process forward_proc(ctx, forward_cmd, {}, process_stdio{{}, forward_rp, {}});
             forward_proc.wait();
             if (forward_proc.exit_code() != 0) {
                 streambuf buffer;
@@ -399,7 +401,6 @@ namespace scrcpy {
                 std::getline(is, cause);
                 throw std::runtime_error(std::format("error forwarding scrcpy to local tcp port: {}", cause));
             }
-
         }
 
         this->server_rp = readable_pipe(ctx);
@@ -607,6 +608,7 @@ namespace scrcpy {
         this->send_control_msg(std::move(msg));
     }
 
+
     auto client::scroll(const std::int32_t x, const std::int32_t y, const float h_scroll,
                         const float v_scroll) const -> void {
         auto msg = std::make_unique<scroll_msg>();
@@ -617,6 +619,75 @@ namespace scrcpy {
             android_motionevent_buttons::AMOTION_EVENT_BUTTON_PRIMARY
         };
         this->send_control_msg(std::move(msg));
+    }
+
+    auto client::read_lines_from_rp(boost::asio::readable_pipe& rp) -> std::vector<std::string> {
+        std::vector<std::string> lines;
+
+        // 先读取全部内容
+        std::string content = read_from_rp(rp);
+        if (content.empty()) {
+            return lines;
+        }
+
+        // 按换行符分割
+        std::string::size_type pos = 0;
+        std::string::size_type prev = 0;
+
+        while ((pos = content.find('\n', prev)) != std::string::npos) {
+            std::string line = content.substr(prev, pos - prev);
+            // 移除可能的回车符（Windows格式）
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            lines.push_back(std::move(line));
+            prev = pos + 1;
+        }
+
+        // 处理最后一行（如果有内容且不以换行符结尾）
+        if (prev < content.length()) {
+            std::string line = content.substr(prev);
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            lines.push_back(std::move(line));
+        }
+
+        return lines;
+    }
+
+    auto client::read_from_rp(boost::asio::readable_pipe& rp) -> std::string {
+        std::string result;
+
+        // 创建同步读取流
+        boost::asio::streambuf buffer;
+
+        // 读取直到EOF
+        boost::system::error_code ec;
+        boost::asio::read(rp, buffer, boost::asio::transfer_all(), ec);
+
+        // 检查错误（允许EOF错误，因为读取到末尾是正常情况）
+        if (ec && ec != boost::asio::error::eof) {
+            throw boost::system::system_error(ec);
+        }
+
+        // 将读取的内容转为字符串
+        std::istream is(&buffer);
+        std::ostringstream oss;
+
+        // 获取buffer大小并预留空间
+        auto size = buffer.size();
+        result.reserve(size);
+
+        // 从istream读取到字符串
+        std::copy(
+            std::istreambuf_iterator<char>(is),
+            std::istreambuf_iterator<char>(),
+            std::back_inserter(result)
+        );
+
+
+        return result;
     }
 
     auto client::send_single_byte_control_msg(control_msg_type msg_type) const -> void {
