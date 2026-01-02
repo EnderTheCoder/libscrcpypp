@@ -576,19 +576,17 @@ namespace scrcpy {
     auto client::read_lines_from_rp(boost::asio::readable_pipe& rp) -> std::vector<std::string> {
         std::vector<std::string> lines;
 
-        // 先读取全部内容
         std::string content = read_from_rp(rp);
         if (content.empty()) {
             return lines;
         }
 
-        // 按换行符分割
         std::string::size_type pos = 0;
         std::string::size_type prev = 0;
 
         while ((pos = content.find('\n', prev)) != std::string::npos) {
             std::string line = content.substr(prev, pos - prev);
-            // 移除可能的回车符（Windows格式）
+
             if (!line.empty() && line.back() == '\r') {
                 line.pop_back();
             }
@@ -596,7 +594,6 @@ namespace scrcpy {
             prev = pos + 1;
         }
 
-        // 处理最后一行（如果有内容且不以换行符结尾）
         if (prev < content.length()) {
             std::string line = content.substr(prev);
             if (!line.empty() && line.back() == '\r') {
@@ -611,27 +608,21 @@ namespace scrcpy {
     auto client::read_from_rp(boost::asio::readable_pipe& rp) -> std::string {
         std::string result;
 
-        // 创建同步读取流
         boost::asio::streambuf buffer;
 
-        // 读取直到EOF
         boost::system::error_code ec;
         boost::asio::read(rp, buffer, boost::asio::transfer_all(), ec);
 
-        // 检查错误（允许EOF错误，因为读取到末尾是正常情况）
         if (ec && ec != boost::asio::error::eof) {
             throw boost::system::system_error(ec);
         }
 
-        // 将读取的内容转为字符串
         std::istream is(&buffer);
         std::ostringstream oss;
 
-        // 获取buffer大小并预留空间
-        auto size = buffer.size();
+        const auto size = buffer.size();
         result.reserve(size);
 
-        // 从istream读取到字符串
         std::copy(
             std::istreambuf_iterator<char>(is),
             std::istreambuf_iterator<char>(),
