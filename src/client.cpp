@@ -4,6 +4,7 @@
 #include <client.hpp>
 #include <boost/process/v2/stdio.hpp>
 #include <boost/algorithm/string/trim.hpp>
+
 namespace scrcpy {
     using process = boost::process::v2::process;
     using process_stdio = boost::process::v2::process_stdio;
@@ -237,6 +238,11 @@ namespace scrcpy {
         boost::asio::io_context ctx;
         boost::asio::readable_pipe rp(ctx);
         process list_proc(ctx, adb_bin.string(), {"forward", "--list"}, process_stdio{{}, rp, {}});
+        list_proc.wait();
+        if (auto ext_c = list_proc.exit_code(); ext_c != 0) {
+            throw std::runtime_error(
+                std::format("Failed to list forward list: adb process ended unexpectedly with exit code {}", ext_c));
+        }
         const auto lines = read_lines_from_rp(rp);
         std::vector<std::array<std::string, 3>> forward_list;
         for (const auto& line : lines) {
@@ -296,9 +302,16 @@ namespace scrcpy {
         using namespace boost::process;
         using namespace boost::asio;
         auto adb_exec = adb_bin.string();
+        if (not std::filesystem::exists(adb_exec)) {
+            throw std::system_error{std::make_error_code(std::errc::no_such_file_or_directory), "Adb path not exists."};
+        }
+        if (not std::filesystem::exists(scrcpy_jar_bin)) {
+            throw std::system_error{
+                std::make_error_code(std::errc::no_such_file_or_directory), "Scrcpy jar path not exists."
+            };
+        }
         std::string serial;
         if (device_serial.has_value()) {
-            adb_exec += " -s " + device_serial.value();
             serial = device_serial.value();
         }
         else {
@@ -314,23 +327,15 @@ namespace scrcpy {
             boost::algorithm::trim(serial);
         }
 
-        if (server_proc->running()) {
+        if (server_proc.has_value() and server_proc->running()) {
             std::cerr << std::format("[{}]scrcpy server it already running, terminating...", serial) << std::endl;
             server_proc->terminate();
             std::cerr << std::format("[{}]scrcpy server terminated", serial) << std::endl;
         }
 
-        auto param_max_size = max_size.has_value() ? std::format("max_size={}", max_size.value()) : "";
-
-        auto upload_cmd = std::format("{} push {} /sdcard/scrcpy-server.jar", adb_exec, scrcpy_jar_bin.string());
-        auto forward_cmd = std::format("{} forward tcp:{} localabstract:scrcpy", adb_exec, port);
-        auto exec_cmd = std::format(
-            "{} shell CLASSPATH=/sdcard/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server"
-            " {} tunnel_forward=true cleanup=true video=true audio=false control=true {}",
-            adb_exec, scrcpy_server_version, param_max_size
-        );
-
-        process upload_proc(ctx, upload_cmd, {});
+        process upload_proc(ctx, adb_exec, {
+                                "-s", serial, "push", scrcpy_jar_bin.string(), "/sdcard/scrcpy-server.jar"
+                            });
         upload_proc.wait();
         if (upload_proc.exit_code() != 0) {
             throw std::runtime_error("error uploading scrcpy server jar");
@@ -348,7 +353,9 @@ namespace scrcpy {
         }
         else {
             readable_pipe forward_rp(ctx);
-            process forward_proc(ctx, forward_cmd, {}, process_stdio{{}, forward_rp, {}});
+            process forward_proc(ctx, adb_exec,
+                                 {"-s", serial, "forward", "tcp:", std::to_string(port), "localabstract:scrcpy"},
+                                 process_stdio{{}, forward_rp, {}});
             forward_proc.wait();
 
             if (forward_proc.exit_code() != 0) {
@@ -358,7 +365,17 @@ namespace scrcpy {
         }
 
         this->server_rp = readable_pipe(ctx);
-        this->server_proc = process{ctx, exec_cmd, {}, process_stdio{{}, server_rp.value(), {}}};
+        auto param_max_size = max_size.has_value() ? std::format("max_size={}", max_size.value()) : "";
+        this->server_proc = process{
+            ctx, adb_exec,
+            {
+                "-s", serial, "shell", "CLASSPATH=/sdcard/scrcpy-server.jar", "app_process", "/",
+                "com.genymobile.scrcpy.Server",
+                scrcpy_server_version, "tunnel_forward=true", "cleanup=true", "video=true", "audio=false",
+                "control=true", param_max_size
+            },
+            process_stdio{{}, server_rp.value(), {}}
+        };
 
         bool output_received = false;
         auto start_time = std::chrono::steady_clock::now();
@@ -575,63 +592,97 @@ namespace scrcpy {
 
     auto client::read_lines_from_rp(boost::asio::readable_pipe& rp) -> std::vector<std::string> {
         std::vector<std::string> lines;
+        boost::system::error_code ec;
 
-        std::string content = read_from_rp(rp);
-        if (content.empty()) {
-            return lines;
-        }
+        std::string buffer;
 
-        std::string::size_type pos = 0;
-        std::string::size_type prev = 0;
+        while (true) {
+            std::string temp_buffer;
 
-        while ((pos = content.find('\n', prev)) != std::string::npos) {
-            std::string line = content.substr(prev, pos - prev);
+            const std::size_t n = boost::asio::read_until(
+                rp,
+                boost::asio::dynamic_buffer(temp_buffer),
+                '\n',
+                ec
+            );
+            if (n > 0) {
+                buffer.append(temp_buffer);
 
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
+                std::size_t pos = 0;
+                std::size_t found;
+
+                while ((found = buffer.find('\n', pos)) != std::string::npos) {
+                    std::string line = buffer.substr(pos, found - pos);
+
+                    if (!line.empty() && line.back() == '\r') {
+                        line.pop_back();
+                    }
+
+                    lines.push_back(line);
+
+                    pos = found + 1;
+                }
+
+                if (pos > 0) {
+                    buffer.erase(0, pos);
+                }
             }
-            lines.push_back(std::move(line));
-            prev = pos + 1;
-        }
+            if (ec) {
+                if (ec == boost::asio::error::eof || ec == boost::asio::error::not_found) {
 
-        if (prev < content.length()) {
-            std::string line = content.substr(prev);
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
+                    if (!buffer.empty()) {
+                        if (!buffer.empty() && buffer.back() == '\r') {
+                            buffer.pop_back();
+                        }
+                        lines.push_back(buffer);
+                    }
+                }
+                break;
             }
-            lines.push_back(std::move(line));
         }
-
+        if (lines.back().empty()) {
+            lines.pop_back();
+        }
         return lines;
     }
 
     auto client::read_from_rp(boost::asio::readable_pipe& rp) -> std::string {
         std::string result;
-
-        boost::asio::streambuf buffer;
-
         boost::system::error_code ec;
-        boost::asio::read(rp, buffer, boost::asio::transfer_all(), ec);
+        std::string buffer;
 
-        if (ec && ec != boost::asio::error::eof) {
-            throw boost::system::system_error(ec);
+        while (true) {
+            std::string temp_buffer;
+
+            const std::size_t n = boost::asio::read_until(
+                rp,
+                boost::asio::dynamic_buffer(temp_buffer),
+                '\n',
+                ec
+            );
+
+            if (n > 0) {
+                buffer.append(temp_buffer);
+            }
+
+            if (ec) {
+                if (ec == boost::asio::error::eof ||
+                    ec == boost::asio::error::broken_pipe ||
+                    ec == boost::asio::error::not_found) {
+                    if (!buffer.empty()) {
+                        result.append(buffer);
+                    }
+                }
+                else {
+                    throw boost::system::system_error(ec);
+                }
+                break;
+            }
         }
-
-        std::istream is(&buffer);
-        std::ostringstream oss;
-
-        const auto size = buffer.size();
-        result.reserve(size);
-
-        std::copy(
-            std::istreambuf_iterator<char>(is),
-            std::istreambuf_iterator<char>(),
-            std::back_inserter(result)
-        );
-
 
         return result;
     }
+
 
     auto client::send_single_byte_control_msg(control_msg_type msg_type) const -> void {
         this->send_control_msg(std::make_unique<single_byte_msg>(msg_type));

@@ -18,28 +18,78 @@
 //
 // Created by ender on 25-3-12.
 //
-
 #include <client.hpp>
+#include <boost/program_options.hpp>
+#include <iostream>
+#include <optional>
+
 using namespace scrcpy;
+namespace po = boost::program_options;
 
-auto main() -> int {
-    const auto cli = client::create_shared("localhost", 1234);
-    cli->deploy("adb", "scrcpy-server", "3.3.1", 1234, std::nullopt, 1920);
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    cli->connect();
-    cli->start_app("com.baidu.BaiduMap");
-    cli->click(100, 200);
-    cli->text("hello, world!");
-    cli->slide(std::make_tuple(100, 100), std::make_tuple(800, 800));
-    cli->slide(std::make_tuple(100, 800), std::make_tuple(800, 100));
-    cli->scroll(260, 1260, 1.0, -1.0);
-    std::this_thread::sleep_for(std::chrono::seconds(1));
+auto main(int argc, char* argv[]) -> int {
+    try {
+        po::options_description desc("Scrcpy++ Control Test Options");
+        desc.add_options()
+                    ("help,h", "Show help information")
+                    ("addr,a", po::value<std::string>()->default_value("localhost"), "Server address")
+                    ("port,p", po::value<int>()->default_value(1234), "Server port")
+                    ("adb-path", po::value<std::string>()->default_value("adb"), "ADB executable path")
+                    ("scrcpy-server-path", po::value<std::string>()->default_value("scrcpy-server"), "Scrcpy server jar file path")
+                    ("server-version", po::value<std::string>()->default_value("3.3.1"), "Scrcpy server version")
+                    ("device-serial,s", po::value<std::string>(), "Device serial number (optional)")
+                    ("max-size,m", po::value<int>()->default_value(1920), "Maximum screen size")
+                    ("app-package", po::value<std::string>()->default_value("com.baidu.BaiduMap"), "Application package name to launch");
 
-    cli->back_or_screen_on();
-    cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
-    cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
-    cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+        po::variables_map vm;
+        po::store(po::parse_command_line(argc, argv, desc), vm);
+        po::notify(vm);
 
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    return 0;
+        if (vm.count("help")) {
+            std::cout << desc << std::endl;
+            return 0;
+        }
+
+        std::string addr = vm["addr"].as<std::string>();
+        int port = vm["port"].as<int>();
+        std::string adb_path = vm["adb-path"].as<std::string>();
+        std::string scrcpy_server_path = vm["scrcpy-server-path"].as<std::string>();
+        std::string server_version = vm["server-version"].as<std::string>();
+        std::optional<std::string> device_serial = vm.count("device-serial")
+            ? std::make_optional(vm["device-serial"].as<std::string>())
+            : std::nullopt;
+        int max_size = vm["max-size"].as<int>();
+        std::string app_package = vm["app-package"].as<std::string>();
+
+        const auto cli = client::create_shared(addr, port);
+        cli->deploy(
+            adb_path,
+            scrcpy_server_path,
+            server_version,
+            port,
+            device_serial,
+            max_size
+        );
+
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        cli->connect();
+        cli->start_app(app_package);
+        cli->click(100, 200);
+        cli->text("hello, world!");
+        cli->slide(std::make_tuple(100, 100), std::make_tuple(800, 800));
+        cli->slide(std::make_tuple(100, 800), std::make_tuple(800, 100));
+        cli->scroll(260, 1260, 1.0, -1.0);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        cli->back_or_screen_on();
+        cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+        cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+        cli->inject_keycode(android_keycode::AKEYCODE_BRIGHTNESS_DOWN);
+
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        return 0;
+
+    } catch (const std::exception& e) {
+        std::cerr << "err: " << e.what() << std::endl;
+        return 1;
+    }
 }
