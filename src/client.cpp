@@ -354,7 +354,7 @@ namespace scrcpy {
         else {
             readable_pipe forward_rp(ctx);
             process forward_proc(ctx, adb_exec,
-                                 {"-s", serial, "forward", "tcp:", std::to_string(port), "localabstract:scrcpy"},
+                                 {"-s", serial, "forward", std::format("tcp:{}", port), "localabstract:scrcpy"},
                                  process_stdio{{}, forward_rp, {}});
             forward_proc.wait();
 
@@ -629,7 +629,6 @@ namespace scrcpy {
             }
             if (ec) {
                 if (ec == boost::asio::error::eof || ec == boost::asio::error::not_found) {
-
                     if (!buffer.empty()) {
                         if (!buffer.empty() && buffer.back() == '\r') {
                             buffer.pop_back();

@@ -35,7 +35,7 @@ auto main(int argc, char* argv[]) -> int {
                     ("port,p", po::value<int>()->default_value(1234), "Server port")
                     ("adb-path", po::value<std::string>()->default_value("adb"), "ADB executable path")
                     ("scrcpy-server-path", po::value<std::string>()->default_value("scrcpy-server"), "Scrcpy server jar file path")
-                    ("server-version", po::value<std::string>()->default_value("3.3.1"), "Scrcpy server version")
+                    ("server-version", po::value<std::string>(), "Scrcpy server version")
                     ("device-serial,s", po::value<std::string>(), "Device serial number (optional)")
                     ("max-size,m", po::value<int>()->default_value(1920), "Maximum screen size")
                     ("app-package", po::value<std::string>()->default_value("com.baidu.BaiduMap"), "Application package name to launch");
