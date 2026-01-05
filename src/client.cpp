@@ -387,14 +387,15 @@ namespace scrcpy {
                 throw std::runtime_error("server startup timed out (10s)");
             }
 
-            if (!server_proc->running()) {
+            if (not server_proc->running()) {
                 int exit_code = server_proc->exit_code();
                 throw std::runtime_error(std::format("server process exited unexpectedly (code: {})", exit_code));
             }
-            auto lines = read_lines_from_rp(server_rp.value());
-            if (auto& first_line = lines.front(); not first_line.empty() and first_line.contains("[server]")) {
-                output_received = true;
-                break;
+            if (auto lines = read_lines_from_rp(server_rp.value()); not lines.empty()) {
+                if (auto& first_line = lines.front(); not first_line.empty() and first_line.contains("[server]")) {
+                    output_received = true;
+                    break;
+                }
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
@@ -639,7 +640,7 @@ namespace scrcpy {
                 break;
             }
         }
-        if (lines.back().empty()) {
+        if (not lines.empty() and lines.back().empty()) {
             lines.pop_back();
         }
         return lines;
