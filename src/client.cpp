@@ -94,16 +94,49 @@ namespace scrcpy {
             control_socket->is_open();
     }
 
+    auto client::kill_remote_server(const std::filesystem::path& adb_bin, const std::string& device_serial) -> void {
+        auto proc = process(ctx, adb_bin.c_str(),
+                            {"-s", device_serial.c_str(), "shell", "killall", "-9", "app_process"});
+        proc.wait();
+    }
+
     auto client::run_recv() -> void {
         try {
             recv_enabled = true;
+            recv_cancelled = false;
+
             while (true) {
-                if (not recv_enabled) {
+                if (!recv_enabled || recv_cancelled) {
                     break;
                 }
+
+                if (!this->server_alive()) {
+                    throw std::runtime_error("Server died too early.");
+                }
+
                 std::array<std::uint8_t, 12> frame_header_buffer{};
 
-                boost::asio::read(*video_socket, boost::asio::buffer(frame_header_buffer));
+                boost::system::error_code ec;
+                size_t bytes_read = boost::asio::read(*video_socket,
+                                                      boost::asio::buffer(frame_header_buffer),
+                                                      ec);
+
+                if (ec == boost::asio::error::operation_aborted) {
+                    std::cout << "Read operation cancelled." << std::endl;
+                    break;
+                }
+                if (ec == boost::asio::error::eof || ec == boost::asio::error::connection_reset) {
+                    std::cout << "Connection closed by peer." << std::endl;
+                    break;
+                }
+                if (ec) {
+                    throw boost::system::system_error(ec, "Failed to read frame header");
+                }
+
+                if (bytes_read != 12) {
+                    throw std::runtime_error("Incomplete frame header received.");
+                }
+
                 const bool config_flag = frame_header_buffer.at(0) >> 7 & 0x01;
                 const bool keyframe_flag = frame_header_buffer.at(0) >> 6 & 0x01;
                 std::reverse(frame_header_buffer.begin(), frame_header_buffer.begin() + 8);
@@ -112,33 +145,52 @@ namespace scrcpy {
                 std::reverse(frame_header_buffer.begin() + 8, frame_header_buffer.end());
                 const auto packet_size = *reinterpret_cast<std::uint32_t*>(frame_header_buffer.data() + 8);
 
-
                 AVPacket* packet = av_packet_alloc();
                 if (packet == nullptr) {
                     throw std::runtime_error("av_packet_alloc failed");
                 }
                 if (av_new_packet(packet, static_cast<std::int32_t>(packet_size))) {
                     av_packet_free(&packet);
-                    throw std::runtime_error("failed to allocate packet memory: ");
+                    throw std::runtime_error("failed to allocate packet memory");
                 }
-                const auto frame_size = boost::asio::read(*this->video_socket,
-                                                          boost::asio::buffer(packet->data, packet_size));
+
+                bytes_read = boost::asio::read(*this->video_socket,
+                                               boost::asio::buffer(packet->data, packet_size),
+                                               ec);
+
+                if (ec == boost::asio::error::operation_aborted) {
+                    av_packet_free(&packet);
+                    std::cout << "Read operation cancelled during frame data read." << std::endl;
+                    break;
+                }
+                if (ec == boost::asio::error::eof || ec == boost::asio::error::connection_reset) {
+                    av_packet_free(&packet);
+                    std::cout << "Connection closed by peer during frame data read." << std::endl;
+                    break;
+                }
+                if (ec) {
+                    av_packet_free(&packet);
+                    throw boost::system::system_error(ec, "Failed to read frame data");
+                }
+
                 packet->size = static_cast<std::int32_t>(packet_size);
 
-                if (frame_size != packet_size) {
+                if (bytes_read != packet_size) {
                     av_packet_free(&packet);
                     if (this->config_packet != nullptr) {
                         av_packet_free(&this->config_packet);
                     }
                     std::cerr << "end of video stream" << std::endl;
                     this->recv_enabled = false;
-                    this->video_socket->close();
+                    boost::system::error_code close_ec;
+                    this->video_socket->close(close_ec);
                     if (this->consumer_.has_value()) {
                         this->consumer_.value()(nullptr);
                     }
                     return;
                 }
 
+                // 处理包数据...
                 if (config_flag) {
                     packet->pts = AV_NOPTS_VALUE;
                 }
@@ -156,14 +208,15 @@ namespace scrcpy {
                 }
                 else if (config_packet != nullptr) {
                     if (av_grow_packet(packet, config_packet->size)) {
+                        av_packet_free(&packet);
                         throw std::runtime_error("failed to grow packet");
                     }
                     memmove(packet->data + config_packet->size, packet->data, packet->size);
                     memcpy(packet->data, config_packet->data, config_packet->size);
-                    // packet->size += config_packet->size;
                     av_packet_free(&config_packet);
                     config_packet = nullptr;
                 }
+
                 const auto frames = decoder.decode(packet);
                 if (frames.empty()) {
                     continue;
@@ -181,11 +234,30 @@ namespace scrcpy {
                 frame_mutex.unlock();
             }
         }
-        catch (std::exception&) {
-            this->recv_enabled = false;
+        catch (const boost::system::system_error& e) {
+            if (e.code() == boost::asio::error::operation_aborted ||
+                e.code() == boost::asio::error::eof ||
+                e.code() == boost::asio::error::connection_reset) {
+                std::cout << "Network operation cancelled or connection closed: " << e.what() << std::endl;
+            }
+            else {
+                std::cerr << "Network error in recv thread: " << e.what() << std::endl;
+                throw;
+            }
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Error in recv thread: " << e.what() << std::endl;
             throw;
         }
+        catch (...) {
+            std::cerr << "Unknown error in recv thread" << std::endl;
+            throw;
+        }
+
+        this->recv_enabled = false;
+        this->recv_cancelled = true;
     }
+
 
     auto client::start_recv() -> void {
         if (this->recv_handle.joinable()) {
@@ -205,10 +277,25 @@ namespace scrcpy {
 
     auto client::stop_recv() -> void {
         this->recv_enabled = false;
+        this->recv_cancelled = true;
+
+        if (this->video_socket != nullptr && this->video_socket->is_open()) {
+            boost::system::error_code ec;
+            this->video_socket->cancel(ec);
+            this->video_socket->close(ec);
+        }
+
+        if (this->control_socket != nullptr && this->control_socket->is_open()) {
+            boost::system::error_code ec;
+            this->control_socket->cancel(ec);
+            this->control_socket->close(ec);
+        }
+
         if (this->recv_handle.joinable()) {
             this->recv_handle.join();
         }
     }
+
 
     auto client::is_recv_enabled() -> bool {
         return this->recv_enabled;
@@ -391,12 +478,13 @@ namespace scrcpy {
                 int exit_code = server_proc->exit_code();
                 throw std::runtime_error(std::format("server process exited unexpectedly (code: {})", exit_code));
             }
-            if (auto lines = read_lines_from_rp(server_rp.value()); not lines.empty()) {
-                if (auto& first_line = lines.front(); not first_line.empty() and first_line.contains("[server]")) {
-                    output_received = true;
-                    break;
-                }
+
+            if (auto first_line = read_first_line_from_rp(server_rp.value()); not first_line.empty() and first_line.
+                contains("[server]")) {
+                output_received = true;
+                break;
             }
+
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
@@ -591,6 +679,30 @@ namespace scrcpy {
         this->send_control_msg(std::move(msg));
     }
 
+    auto client::read_first_line_from_rp(boost::asio::readable_pipe& rp) -> std::string {
+        boost::system::error_code ec;
+        std::string buffer;
+
+        boost::asio::read_until(rp, boost::asio::dynamic_buffer(buffer), '\n', ec);
+
+        if (not(ec.value() == 0 || ec == boost::asio::error::eof ||
+            ec == boost::asio::error::broken_pipe ||
+            ec == boost::asio::error::not_found)) {
+            throw boost::system::system_error(ec);
+        }
+
+        if (const auto pos = buffer.find('\n'); pos != std::string::npos) {
+            std::string line = buffer.substr(0, pos);
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            return line;
+        }
+
+        return buffer;
+    }
+
+
     auto client::read_lines_from_rp(boost::asio::readable_pipe& rp) -> std::vector<std::string> {
         std::vector<std::string> lines;
         boost::system::error_code ec;
@@ -598,53 +710,80 @@ namespace scrcpy {
         std::string buffer;
 
         while (true) {
-            std::string temp_buffer;
+            // 检查缓冲区中是否还有未处理的数据
+            std::size_t pos = 0;
+            std::size_t found;
 
+            // 先处理缓冲区中已有的数据
+            while ((found = buffer.find('\n', pos)) != std::string::npos) {
+                std::string line = buffer.substr(pos, found - pos);
+
+                if (!line.empty() && line.back() == '\r') {
+                    line.pop_back();
+                }
+
+                lines.push_back(line);
+                pos = found + 1;
+            }
+
+            // 移除已处理的数据
+            if (pos > 0) {
+                buffer.erase(0, pos);
+            }
+
+            // 检查是否还有数据需要处理
+            if (!buffer.empty() && (ec == boost::asio::error::eof || ec == boost::asio::error::not_found)) {
+                if (buffer.back() == '\r') {
+                    buffer.pop_back();
+                }
+                if (!buffer.empty()) {
+                    lines.push_back(buffer);
+                }
+                break;
+            }
+
+            // 读取新数据
+            std::string temp_buffer;
             const std::size_t n = boost::asio::read_until(
                 rp,
                 boost::asio::dynamic_buffer(temp_buffer),
                 '\n',
                 ec
             );
+
             if (n > 0) {
-                buffer.append(temp_buffer);
+                // 将新读取的数据添加到缓冲区
+                buffer.append(temp_buffer.substr(0, n));
 
-                std::size_t pos = 0;
-                std::size_t found;
-
-                while ((found = buffer.find('\n', pos)) != std::string::npos) {
-                    std::string line = buffer.substr(pos, found - pos);
-
-                    if (!line.empty() && line.back() == '\r') {
-                        line.pop_back();
-                    }
-
-                    lines.push_back(line);
-
-                    pos = found + 1;
-                }
-
-                if (pos > 0) {
-                    buffer.erase(0, pos);
+                // 保留剩余未处理的数据
+                if (n < temp_buffer.size()) {
+                    buffer.append(temp_buffer.substr(n));
                 }
             }
-            if (ec) {
+            else if (ec) {
+                // 处理错误情况
                 if (ec == boost::asio::error::eof || ec == boost::asio::error::not_found) {
                     if (!buffer.empty()) {
-                        if (!buffer.empty() && buffer.back() == '\r') {
+                        if (buffer.back() == '\r') {
                             buffer.pop_back();
                         }
-                        lines.push_back(buffer);
+                        if (!buffer.empty()) {
+                            lines.push_back(buffer);
+                        }
                     }
                 }
                 break;
             }
         }
-        if (not lines.empty() and lines.back().empty()) {
+
+        // 移除最后的空行
+        if (!lines.empty() && lines.back().empty()) {
             lines.pop_back();
         }
+
         return lines;
     }
+
 
     auto client::read_from_rp(boost::asio::readable_pipe& rp) -> std::string {
         std::string result;

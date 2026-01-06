@@ -34,6 +34,8 @@ namespace scrcpy {
 
         auto is_connected() const -> bool;
 
+        auto kill_remote_server(const std::filesystem::path& adb_bin, const std::string& device_serial) -> void;
+
         auto start_recv() -> void;
 
         auto stop_recv() -> void;
@@ -118,6 +120,8 @@ namespace scrcpy {
                             android_metastate metastate = android_metastate::AMETA_NONE) const -> void;
 
     private:
+        static auto read_first_line_from_rp(boost::asio::readable_pipe& rp) -> std::string;
+
         static auto read_lines_from_rp( boost::asio::readable_pipe& rp) -> std::vector<std::string> ;
 
         static auto read_from_rp(boost::asio::readable_pipe& rp) -> std::string ;
@@ -138,6 +142,7 @@ namespace scrcpy {
         std::optional<boost::asio::readable_pipe> server_rp;
 
         std::atomic<bool> recv_enabled{false};
+        std::atomic<bool> recv_cancelled{false};
         std::atomic<bool> parse_enabled{false};
 
         std::shared_ptr<boost::asio::ip::tcp::socket> video_socket;

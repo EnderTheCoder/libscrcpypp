@@ -61,6 +61,7 @@ auto main(int argc, char* argv[]) -> int {
         std::string app_package = vm["app-package"].as<std::string>();
 
         const auto cli = client::create_shared(addr, port);
+        cli->kill_remote_server(adb_path, device_serial.value());
         cli->deploy(
             adb_path,
             scrcpy_server_path,
