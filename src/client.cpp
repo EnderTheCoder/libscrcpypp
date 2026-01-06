@@ -67,7 +67,10 @@ namespace scrcpy {
                 throw std::runtime_error(std::format("broken packet, expect 0x00 but got {:#x}.",
                                                      dummy_byte_buffer[0]));
             }
+#ifdef _DEBUG
             std::cout << "successfully read dummy byte." << std::endl;
+#endif
+
         }
         catch (std::exception& e) {
             throw std::runtime_error(std::format("error reading dummy byte: {}", e.what()));
@@ -75,7 +78,10 @@ namespace scrcpy {
         std::array<char, 64> device_name_buffer = {};
         boost::asio::read(*video_socket, boost::asio::buffer(device_name_buffer));
         this->device_name = device_name_buffer.data();
+#ifdef _DEBUG
         std::cout << "device name: " << device_name << std::endl;
+#endif
+
         std::array<std::byte, 12> codec_meta_buffer = {};
         if (boost::asio::read(*video_socket, boost::asio::buffer(codec_meta_buffer)) != 12) {
             throw std::runtime_error("Incomplete codec metadata received.");
@@ -84,9 +90,11 @@ namespace scrcpy {
         std::reverse(codec_meta_buffer.begin() + 4, codec_meta_buffer.begin() + 8);
         std::reverse(codec_meta_buffer.begin() + 8, codec_meta_buffer.end());
         this->width = *reinterpret_cast<std::uint32_t*>(codec_meta_buffer.data() + 4);
-        this->height = *reinterpret_cast<std::uint32_t*>(codec_meta_buffer.data() + 8);\
+        this->height = *reinterpret_cast<std::uint32_t*>(codec_meta_buffer.data() + 8);
+#ifdef _DEBUG
         std::cout << "video stream codec: " << this->codec << std::endl;
         std::cout << "video stream working at resolution: " << this->height << "x" << this->width << std::endl;
+#endif
     }
 
     auto client::is_connected() const -> bool {
@@ -122,11 +130,15 @@ namespace scrcpy {
                                                       ec);
 
                 if (ec == boost::asio::error::operation_aborted) {
+#ifdef _DEBUG
                     std::cout << "Read operation cancelled." << std::endl;
+#endif
                     break;
                 }
                 if (ec == boost::asio::error::eof || ec == boost::asio::error::connection_reset) {
+#ifdef _DEBUG
                     std::cout << "Connection closed by peer." << std::endl;
+#endif
                     break;
                 }
                 if (ec) {
@@ -160,12 +172,16 @@ namespace scrcpy {
 
                 if (ec == boost::asio::error::operation_aborted) {
                     av_packet_free(&packet);
+#ifdef _DEBUG
                     std::cout << "Read operation cancelled during frame data read." << std::endl;
+#endif
                     break;
                 }
                 if (ec == boost::asio::error::eof || ec == boost::asio::error::connection_reset) {
                     av_packet_free(&packet);
+#ifdef _DEBUG
                     std::cout << "Connection closed by peer during frame data read." << std::endl;
+#endif
                     break;
                 }
                 if (ec) {
