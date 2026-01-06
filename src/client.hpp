@@ -36,6 +36,8 @@ namespace scrcpy {
 
         auto kill_remote_server(const std::filesystem::path& adb_bin, const std::string& device_serial) -> void;
 
+        auto remove_forward_rules(const std::filesystem::path& adb_bin, const std::string& device_serial) -> void;
+
         auto start_recv() -> void;
 
         auto stop_recv() -> void;
@@ -122,9 +124,9 @@ namespace scrcpy {
     private:
         static auto read_first_line_from_rp(boost::asio::readable_pipe& rp) -> std::string;
 
-        static auto read_lines_from_rp( boost::asio::readable_pipe& rp) -> std::vector<std::string> ;
+        static auto read_lines_from_rp(boost::asio::readable_pipe& rp) -> std::vector<std::string>;
 
-        static auto read_from_rp(boost::asio::readable_pipe& rp) -> std::string ;
+        static auto read_from_rp(boost::asio::readable_pipe& rp) -> std::string;
 
         auto send_single_byte_control_msg(control_msg_type msg_type) const -> void;
 

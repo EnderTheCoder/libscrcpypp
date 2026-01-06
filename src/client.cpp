@@ -70,7 +70,6 @@ namespace scrcpy {
 #ifdef _DEBUG
             std::cout << "successfully read dummy byte." << std::endl;
 #endif
-
         }
         catch (std::exception& e) {
             throw std::runtime_error(std::format("error reading dummy byte: {}", e.what()));
@@ -105,6 +104,12 @@ namespace scrcpy {
     auto client::kill_remote_server(const std::filesystem::path& adb_bin, const std::string& device_serial) -> void {
         auto proc = process(ctx, adb_bin.c_str(),
                             {"-s", device_serial.c_str(), "shell", "killall", "-9", "app_process"});
+        proc.wait();
+    }
+
+    auto client::remove_forward_rules(const std::filesystem::path& adb_bin, const std::string& device_serial) -> void {
+        auto proc = process(ctx, adb_bin.c_str(),
+                            {"-s", device_serial.c_str(), "forward", "--remove-all"});
         proc.wait();
     }
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(scrcpy++ VERSION 1.9.1)
+project(scrcpy++ VERSION 1.9.2)
 if (WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00)
     add_compile_definitions(NOMINMAX)
