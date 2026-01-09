@@ -17,24 +17,15 @@ namespace scrcpy {
     }
 
     client::~client() {
-        stop_recv();
-        if (recv_handle.joinable()) recv_handle.join();
+        if (recv_enabled) {
+            stop_recv();
+        }
         if (config_packet != nullptr) {
             av_packet_free(&config_packet);
         }
-        if (video_socket != nullptr and video_socket->is_open()) {
-            video_socket->cancel();
-            video_socket->close();
-        }
-        if (control_socket != nullptr and control_socket->is_open()) {
-            control_socket->cancel();
-            control_socket->close();
-        }
-        if (server_proc.has_value()) {
-            if (server_proc->running()) {
-                server_proc->terminate();
-                server_proc->wait();
-            }
+        if (server_proc.has_value() && server_proc->running()) {
+            server_proc->terminate();
+            server_proc->wait();
         }
     }
 
