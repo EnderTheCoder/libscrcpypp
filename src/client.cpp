@@ -104,6 +104,128 @@ namespace scrcpy {
         proc.wait();
     }
 
+    auto client::start_recv() -> void {
+        if (this->recv_handle.joinable()) {
+            std::cerr << "waiting for previous network thread to exit.." << std::endl;
+            this->recv_handle.join();
+            std::cerr << "network thread exited." << std::endl;
+        }
+        recv_handle = std::thread([t = shared_from_this()] {
+            try {
+                t->run_recv();
+            }
+            catch (std::exception& e) {
+                std::cerr << "recv stopped: " << e.what() << std::endl;
+            }
+        });
+    }
+
+
+    auto client::stop_recv() -> void {
+        this->recv_enabled = false;
+        this->recv_cancelled = true;
+
+        if (this->video_socket != nullptr && this->video_socket->is_open()) {
+            boost::system::error_code ec;
+            this->video_socket->cancel(ec);
+            this->video_socket->close(ec);
+        }
+
+        if (this->control_socket != nullptr && this->control_socket->is_open()) {
+            boost::system::error_code ec;
+            this->control_socket->cancel(ec);
+            this->control_socket->close(ec);
+        }
+
+        if (this->recv_handle.joinable()) {
+            this->recv_handle.join();
+        }
+    }
+
+    auto client::is_recv_enabled() -> bool {
+        return this->recv_enabled;
+    }
+
+
+    auto client::set_frame_consumer(const std::function<void(std::shared_ptr<frame>)>& consumer) -> void {
+        this->consumer_ = consumer;
+    }
+
+    auto client::frames() -> std::vector<std::shared_ptr<frame>> {
+        std::lock_guard lock(this->frame_mutex);
+        if (frame_queue.empty()) {
+            return {};
+        }
+        std::vector<std::shared_ptr<frame>> frames = {};
+        frames.insert(frames.end(), frame_queue.begin(), frame_queue.end());
+        frame_queue.clear();
+        return frames;
+    }
+
+    auto client::video_size() -> std::tuple<std::uint64_t, std::uint64_t> {
+        return {width, height};
+    }
+
+    auto client::read_forward(const std::filesystem::path& adb_bin) -> std::vector<std::array<std::string, 3>> {
+        using namespace boost::process;
+        boost::asio::io_context ctx;
+        boost::asio::readable_pipe rp(ctx);
+        process list_proc(ctx, adb_bin.string(), {"forward", "--list"}, process_stdio{{}, rp, {}});
+        list_proc.wait();
+        if (auto ext_c = list_proc.exit_code(); ext_c != 0) {
+            throw std::runtime_error(
+                std::format("Failed to list forward list: adb process ended unexpectedly with exit code {}", ext_c));
+        }
+        const auto lines = read_lines_from_rp(rp);
+        std::vector<std::array<std::string, 3>> forward_list;
+        for (const auto& line : lines) {
+            using std::operator ""sv;
+
+            auto item = std::array<std::string, 3>{};
+            for (const auto [idx, part] : std::views::split(line, " "sv) | std::views::enumerate) {
+                item.at(idx) = std::string_view(part);
+            }
+            forward_list.emplace_back(item);
+        }
+        return forward_list;
+    }
+
+    std::optional<std::string> client::forward_list_contains_tcp_port(
+        const std::filesystem::path& adb_bin,
+        const std::uint16_t port) {
+        for (const auto& [serial, local, remote] : read_forward(adb_bin)) {
+            if (local.contains(std::format("tcp:{}", port))) {
+                return serial;
+            }
+        }
+        return std::nullopt;
+    }
+
+    auto client::list_dev_serials(const std::filesystem::path& adb_bin) -> std::vector<std::string> {
+        using namespace boost::process;
+        using namespace boost::asio;
+        io_context ctx;
+        readable_pipe rp(ctx);
+        using std::operator ""sv;
+        process list_proc(ctx, adb_bin.string(), {"devices"}, process_stdio{{}, rp, {}});
+        auto sig_start = false;
+        std::vector<std::string> serials;
+        list_proc.wait();
+        for (const auto lines = read_lines_from_rp(rp); const auto& line : lines) {
+            if (sig_start and line.contains("device")) {
+                for (const auto [s_begin, s_end] : std::views::split(line, "\t"sv)) {
+                    auto serial = std::string_view(s_begin, s_end);
+                    serials.emplace_back(serial);
+                    break;
+                }
+            }
+            else if (line == "List of devices attached") {
+                sig_start = true;
+            }
+        }
+        return serials;
+    }
+
     auto client::run_recv() -> void {
         try {
             recv_enabled = true;
@@ -268,128 +390,6 @@ namespace scrcpy {
 
         this->recv_enabled = false;
         this->recv_cancelled = true;
-    }
-
-
-    auto client::start_recv() -> void {
-        if (this->recv_handle.joinable()) {
-            std::cerr << "waiting for previous network thread to exit.." << std::endl;
-            this->recv_handle.join();
-            std::cerr << "network thread exited." << std::endl;
-        }
-        recv_handle = std::thread([t = shared_from_this()] {
-            try {
-                t->run_recv();
-            }
-            catch (std::exception& e) {
-                std::cerr << "recv stopped: " << e.what() << std::endl;
-            }
-        });
-    }
-
-    auto client::stop_recv() -> void {
-        this->recv_enabled = false;
-        this->recv_cancelled = true;
-
-        if (this->video_socket != nullptr && this->video_socket->is_open()) {
-            boost::system::error_code ec;
-            this->video_socket->cancel(ec);
-            this->video_socket->close(ec);
-        }
-
-        if (this->control_socket != nullptr && this->control_socket->is_open()) {
-            boost::system::error_code ec;
-            this->control_socket->cancel(ec);
-            this->control_socket->close(ec);
-        }
-
-        if (this->recv_handle.joinable()) {
-            this->recv_handle.join();
-        }
-    }
-
-
-    auto client::is_recv_enabled() -> bool {
-        return this->recv_enabled;
-    }
-
-    auto client::set_frame_consumer(const std::function<void(std::shared_ptr<frame>)>& consumer) -> void {
-        this->consumer_ = consumer;
-    }
-
-    auto client::frames() -> std::vector<std::shared_ptr<frame>> {
-        std::lock_guard lock(this->frame_mutex);
-        if (frame_queue.empty()) {
-            return {};
-        }
-        std::vector<std::shared_ptr<frame>> frames = {};
-        frames.insert(frames.end(), frame_queue.begin(), frame_queue.end());
-        frame_queue.clear();
-        return frames;
-    }
-
-    auto client::video_size() -> std::tuple<std::uint64_t, std::uint64_t> {
-        return {width, height};
-    }
-
-    auto client::read_forward(const std::filesystem::path& adb_bin) -> std::vector<std::array<std::string, 3>> {
-        using namespace boost::process;
-        boost::asio::io_context ctx;
-        boost::asio::readable_pipe rp(ctx);
-        process list_proc(ctx, adb_bin.string(), {"forward", "--list"}, process_stdio{{}, rp, {}});
-        list_proc.wait();
-        if (auto ext_c = list_proc.exit_code(); ext_c != 0) {
-            throw std::runtime_error(
-                std::format("Failed to list forward list: adb process ended unexpectedly with exit code {}", ext_c));
-        }
-        const auto lines = read_lines_from_rp(rp);
-        std::vector<std::array<std::string, 3>> forward_list;
-        for (const auto& line : lines) {
-            using std::operator ""sv;
-
-            auto item = std::array<std::string, 3>{};
-            for (const auto [idx, part] : std::views::split(line, " "sv) | std::views::enumerate) {
-                item.at(idx) = std::string_view(part);
-            }
-            forward_list.emplace_back(item);
-        }
-        return forward_list;
-    }
-
-    std::optional<std::string> client::forward_list_contains_tcp_port(
-        const std::filesystem::path& adb_bin,
-        const std::uint16_t port) {
-        for (const auto& [serial, local, remote] : read_forward(adb_bin)) {
-            if (local.contains(std::format("tcp:{}", port))) {
-                return serial;
-            }
-        }
-        return std::nullopt;
-    }
-
-    auto client::list_dev_serials(const std::filesystem::path& adb_bin) -> std::vector<std::string> {
-        using namespace boost::process;
-        using namespace boost::asio;
-        io_context ctx;
-        readable_pipe rp(ctx);
-        using std::operator ""sv;
-        process list_proc(ctx, adb_bin.string(), {"devices"}, process_stdio{{}, rp, {}});
-        auto sig_start = false;
-        std::vector<std::string> serials;
-        list_proc.wait();
-        for (const auto lines = read_lines_from_rp(rp); const auto& line : lines) {
-            if (sig_start and line.contains("device")) {
-                for (const auto [s_begin, s_end] : std::views::split(line, "\t"sv)) {
-                    auto serial = std::string_view(s_begin, s_end);
-                    serials.emplace_back(serial);
-                    break;
-                }
-            }
-            else if (line == "List of devices attached") {
-                sig_start = true;
-            }
-        }
-        return serials;
     }
 
     auto client::deploy(const std::filesystem::path& adb_bin,
@@ -611,6 +611,18 @@ namespace scrcpy {
         this->send_control_msg(std::move(msg));
     }
 
+    auto client::scroll(const std::int32_t x, const std::int32_t y, const float h_scroll,
+                        const float v_scroll) const -> void {
+        auto msg = std::make_unique<scroll_msg>();
+        msg->position = position_t(x, y, this->width, this->height);
+        msg->h_scroll = ifp16_t{h_scroll};
+        msg->v_scroll = ifp16_t{v_scroll};
+        msg->action_button = abs_enum_t<android_motionevent_buttons, std::uint32_t>{
+            android_motionevent_buttons::AMOTION_EVENT_BUTTON_PRIMARY
+        };
+        this->send_control_msg(std::move(msg));
+    }
+
     auto client::expand_notification_panel() const -> void {
         this->send_single_byte_control_msg(control_msg_type::SC_CONTROL_MSG_TYPE_EXPAND_NOTIFICATION_PANEL);
     }
@@ -635,12 +647,12 @@ namespace scrcpy {
         this->send_single_byte_control_msg(control_msg_type::SC_CONTROL_MSG_TYPE_RESET_VIDEO);
     }
 
+
     auto client::start_app(const std::string& app_name) const -> void {
         auto msg = std::make_unique<start_app_msg>();
         msg->app_name = string_t<abs_int_t<std::uint8_t>>{app_name};
         this->send_control_msg(std::move(msg));
     }
-
 
     auto client::back_or_screen_on() const -> void {
         auto msg = std::make_unique<back_or_screen_on_msg>();
@@ -655,6 +667,7 @@ namespace scrcpy {
         };
         this->send_control_msg(std::move(msg));
     }
+
 
     auto client::inject_keycode(const android_keycode keycode, const std::uint32_t repeat,
                                 const android_metastate metastate) const -> void {
@@ -676,19 +689,6 @@ namespace scrcpy {
         msg->keycode = abs_enum_t<android_keycode, std::uint32_t>{keycode};
         msg->repeat = abs_int_t{repeat};
         msg->metastate = abs_enum_t<android_metastate, std::uint32_t>{metastate};
-        this->send_control_msg(std::move(msg));
-    }
-
-
-    auto client::scroll(const std::int32_t x, const std::int32_t y, const float h_scroll,
-                        const float v_scroll) const -> void {
-        auto msg = std::make_unique<scroll_msg>();
-        msg->position = position_t(x, y, this->width, this->height);
-        msg->h_scroll = ifp16_t{h_scroll};
-        msg->v_scroll = ifp16_t{v_scroll};
-        msg->action_button = abs_enum_t<android_motionevent_buttons, std::uint32_t>{
-            android_motionevent_buttons::AMOTION_EVENT_BUTTON_PRIMARY
-        };
         this->send_control_msg(std::move(msg));
     }
 

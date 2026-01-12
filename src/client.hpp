@@ -40,7 +40,7 @@ namespace scrcpy {
 
         auto start_recv() -> void;
 
-        auto stop_recv() -> void;
+        auto stop_recv() noexcept -> void;
 
         auto is_recv_enabled() -> bool;
 
