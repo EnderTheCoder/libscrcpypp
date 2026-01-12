@@ -16,7 +16,7 @@ namespace scrcpy {
     client::client(const std::string_view addr, const std::uint16_t port) : addr(addr), port_(port) {
     }
 
-    client::~client() {
+    client::~client() noexcept {
         if (recv_enabled) {
             stop_recv();
         }
@@ -121,7 +121,7 @@ namespace scrcpy {
     }
 
 
-    auto client::stop_recv() -> void {
+    auto client::stop_recv() noexcept -> void {
         this->recv_enabled = false;
         this->recv_cancelled = true;
 
