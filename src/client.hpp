@@ -24,7 +24,7 @@ namespace scrcpy {
 
         client(std::string_view addr, std::uint16_t port);
 
-        ~client();
+        ~client() noexcept;
 
         auto get_port() const -> std::uint16_t;
 

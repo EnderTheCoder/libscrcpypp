@@ -491,6 +491,7 @@ namespace scrcpy {
                 throw std::runtime_error(std::format("server process exited unexpectedly (code: {})", exit_code));
             }
 
+            // todo: fix reading
             if (auto first_line = read_first_line_from_rp(server_rp.value()); not first_line.empty() and first_line.
                 contains("[server]")) {
                 output_received = true;
