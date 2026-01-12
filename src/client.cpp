@@ -476,7 +476,6 @@ namespace scrcpy {
             process_stdio{{}, server_rp.value(), {}}
         };
 
-        bool output_received = false;
         auto start_time = std::chrono::steady_clock::now();
         while (true) {
             constexpr int timeout_ms = 10000;
@@ -494,17 +493,11 @@ namespace scrcpy {
             // todo: fix reading
             if (auto first_line = read_first_line_from_rp(server_rp.value()); not first_line.empty() and first_line.
                 contains("[server]")) {
-                output_received = true;
                 break;
             }
-
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
 
-        if (!output_received) {
-            if (server_proc.has_value()) server_proc->terminate();
-            throw std::runtime_error("failed to get server startup confirmation");
-        }
     }
 
     auto client::terminate() -> void {
